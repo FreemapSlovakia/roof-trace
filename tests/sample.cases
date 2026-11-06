@@ -1,0 +1,13 @@
+# Expected results in the 400 m test square (--bbox=-296000,-1228800,-295600,-1228400).
+# <same|split> x1 y1 x2 y2  # what it is; coordinates EPSG:5514
+same -295892.1 -1228609.7 -295885.0 -1228609.7  # gabled house, one roof (was split along its ridge)
+split -295845.7 -1228517.1 -295837.1 -1228517.1  # long row top left: roof change at offset ridge
+split -295828.6 -1228518.6 -295820.0 -1228517.1  # long row top left: grey and brown roofs
+split -295851.4 -1228540.0 -295840.0 -1228540.0  # red and grey hipped roofs side by side
+same -295851.4 -1228547.4 -295851.4 -1228537.1  # red hipped roof: street face belongs to the house
+same -295840.0 -1228547.4 -295840.0 -1228537.1  # grey hipped roof: street face belongs to the house
+same -295858.6 -1228574.3 -295853.6 -1228574.3  # hipped roof in the row bottom left, one roof
+split -295865.7 -1228574.3 -295857.1 -1228574.3  # neighbours in the row bottom left
+split -295755.7 -1228551.4 -295744.3 -1228554.3  # light roofs top right meeting in a V
+same -295734.3 -1228587.1 -295726.4 -1228589.3  # house with a skewed street wall, one roof
+split -295847.1 -1228574.3 -295838.6 -1228574.3  # pink and red hipped roofs in the row bottom left

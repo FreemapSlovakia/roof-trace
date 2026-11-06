@@ -1,0 +1,5 @@
+# LOT26 (Tatry) from the store, --bbox=-386150,-1183300,-379500,-1171450
+# <same|split> x1 y1 x2 y2  # what it is; coordinates EPSG:5514
+same -385835.9 -1183176.4 -385821.7 -1183187.8  # L-shaped house, wings at 45° (image 38)
+same -379937.0 -1172631.0 -379930.0 -1172630.0  # sparse dark hipped roof, one building (image 41)
+split -379576.2 -1171827.3 -379573.3 -1171825.7  # flat annex at the eaves of a gabled house (image 44)

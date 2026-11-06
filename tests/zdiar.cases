@@ -1,0 +1,11 @@
+# Ždiar, --bbox=-332511,-1174803,-332011,-1174303
+split -332470.9 -1174500.8 -332458.4 -1174507.9  # red and pink roofs side by side
+same -332370.8 -1174533.7 -332368.8 -1174525.0  # cross-shaped house with a wing, one building
+same -332478.9 -1174564.4 -332471.0 -1174576.9  # red house around a small court, one building
+split -332495.4 -1174559.1 -332478.9 -1174564.4  # grey and red houses
+same -332212 -1174628 -332208 -1174638 # north wing in the main house's notch (image 27)
+same -332090 -1174521 -332078 -1174521 # gable halves split along the ridge
+same -332392 -1174506 -332384 -1174515 # low wing filling the hipped house's notch
+same -332128 -1174653 -332116 -1174653 # hip end strip
+same -332140 -1174595 -332132 -1174590 # interlocking halves either side of the ridge (image 28)
+same -332073.3 -1174497.5 -332065.4 -1174500.4  # red gabled roof, halves meeting at the ridge

@@ -1,0 +1,22 @@
+[package]
+name = "roof-trace"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+geo = "0.33.1"
+las = "0.9"
+laz = "0.12"
+proj = "0.31.0"
+rayon = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde_json = "1"
+
+[profile.release]
+# About 8% less CPU time than the default.
+lto = "fat"
+codegen-units = 1
+panic = "abort"

@@ -1,9 +1,10 @@
 #!/bin/bash
 # Traces the squares of a grid over an area, each from the flight lines of every LOT around it:
 #   squares.sh xmin ymin xmax ymax [size]
-# Squares are aligned to multiples of size (m, default 20000). Each gives work/sq/<x>_<y>.geojson
-# and, for review in JOSM, work/sq/<x>_<y>/{new,overlap}.osm. Squares without flight lines and
-# finished squares are skipped, so a stopped run resumes. Each square's store is deleted once traced.
+# Squares are aligned to multiples of size (m, default 20000) and done column by column from the
+# east. Each gives work/sq/<x>_<y>.geojson and, for review in JOSM, work/sq/<x>_<y>/{new,overlap}.osm.
+# Squares without flight lines and finished squares are skipped, so a stopped run resumes. Each
+# square's store is deleted once traced.
 # INDEX names the flight-line index (default ~/fm/dm-maker/index.sqlite), OSM the existing OSM
 # buildings (default work/osm/buildings.geojsonseq, see README), STORE the directory for the
 # squares' temporary stores, up to two at a time (default work/sq).
@@ -34,10 +35,12 @@ finish() {
   rm -rf "$name"; mv "$name.tmp" "$name"
   echo "$bbox: $binned trace $(($(date +%s) - start)) s, $(tail -1 "$name.trace.log"); export $(tr '\n' ' ' <"$name.export.log")"
   rm -f "$store"*
+  ./publish.sh || echo "publishing failed"
 }
 
 prev=
-for ((x = $(fl "$x0"); x < x1; x += size)); do
+for ((x = $(fl "$x1"); x >= $(fl "$x0"); x -= size)); do
+  [ "$x" -lt "$x1" ] || continue
   for ((y = $(fl "$y0"); y < y1; y += size)); do
     name=work/sq/${x}_${y}
     [ -e "$name/overlap.osm" ] && continue

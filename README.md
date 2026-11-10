@@ -6,7 +6,7 @@ not the walls, and are regularized: right-angled where the building is, with fre
 is not.
 
 Attached houses are split where their roofs differ (height, slope, ridge direction, a valley
-between them). Splitting errs towards too many parts: merging two ways in an editor is quicker than
+between them, roofing told apart by the points' intensity). Splitting errs towards too many parts: merging two ways in an editor is quicker than
 finding where one should be cut.
 
 Each building gets `building=yes`, `height` (ridge above the lowest ground around it) and, where
@@ -35,7 +35,9 @@ roof-trace --index index.sqlite --bbox=-296000,-1228800,-295600,-1228400 --out b
 ```
 
 The flight lines are long strips of several hundred MB each, without spatial indexes, so for large
-areas the points are first sorted into a tile store, which is then traced tile by tile:
+areas the points are first sorted into a tile store, which is then traced tile by tile. The store
+keeps building points with their intensity, and ground and vegetation thinned near buildings;
+stores binned before intensity was kept still trace, without it, but cannot be binned into.
 
 ```sh
 roof-trace --index index.sqlite --bin area.sqlite --bbox=…
@@ -43,7 +45,8 @@ roof-trace --store area.sqlite --bbox=… --out buildings.geojson
 ```
 
 `squares.sh` does both for each square of a grid over an area, from the flight lines of every LOT
-around it, and deletes each square's store when done; a stopped run resumes:
+around it, and deletes each square's store when done, or moves it to `KEEP`; `BIN_ONLY=1` only
+bins into `KEEP`. A stopped run resumes:
 
 ```sh
 INDEX=index.sqlite ./squares.sh -340000 -1200000 -320000 -1180000   # → work/sq/<x>_<y>.geojson, work/sq/<x>_<y>/*.osm

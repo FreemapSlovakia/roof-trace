@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::split;
 
-type P3 = [f64; 3];
+type P3 = crate::store::Pt;
 
 /// Grid for finding roof faces (m), as for splitting.
 const RES: f64 = 0.5;

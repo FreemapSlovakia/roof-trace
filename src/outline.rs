@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use crate::store::Pt;
+
 /// Raster mask of building points.
 pub struct Grid {
     x0: f64,
@@ -9,7 +11,7 @@ pub struct Grid {
     h: usize,
     occ: Vec<bool>,
     z: Vec<f32>,
-    pts: Vec<[f64; 3]>,
+    pts: Vec<Pt>,
 }
 
 pub struct Building {
@@ -18,7 +20,7 @@ pub struct Building {
     pub area: f64,
     pub z_max: f64,
     /// The building points that fell into it.
-    pub points: Vec<[f64; 3]>,
+    pub points: Vec<Pt>,
     sum: (f64, f64, usize),
 }
 
@@ -38,7 +40,7 @@ const SPARSE_REACH: f64 = 1.5;
 const DENSITY_CELL: f64 = 2.0;
 
 impl Grid {
-    pub fn new(q: [f64; 4], res: f64, pts: &[[f64; 3]], ground: &[[f64; 3]]) -> Self {
+    pub fn new(q: [f64; 4], res: f64, pts: &[Pt], ground: &[[f64; 3]]) -> Self {
         let w = ((q[2] - q[0]) / res).ceil() as usize;
         let h = ((q[3] - q[1]) / res).ceil() as usize;
         let mut g = Grid { x0: q[0], y0: q[1], res, w, h, occ: vec![false; w * h],

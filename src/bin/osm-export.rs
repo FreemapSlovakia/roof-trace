@@ -305,9 +305,18 @@ fn share_nodes(buildings: Vec<Building>) -> (Vec<P>, Vec<Way>) {
 
     // Sharing moves corners by up to SNAP; where that breaks a building, it keeps its own corners.
     let mut own = 0;
+    let mut ways_of = vec![0usize; nodes.len()];
+    for w in &ways {
+        let mut ns: Vec<usize> = w.rings.iter().flatten().copied().collect();
+        ns.sort_unstable();
+        ns.dedup();
+        for n in ns {
+            ways_of[n] += 1;
+        }
+    }
     for (wi, w) in ways.iter_mut().enumerate() {
         for r in w.rings.iter_mut() {
-            tidy(r, &nodes);
+            tidy(r, &nodes, &mut ways_of);
         }
         let shared = polygon(&w.rings.iter().map(|r| r.iter().map(|&n| nodes[n]).collect()).collect::<Vec<_>>());
         if shared.is_valid() {
@@ -347,18 +356,19 @@ fn share_nodes(buildings: Vec<Building>) -> (Vec<P>, Vec<Way>) {
     (kept, ways)
 }
 
-/// Drops nodes that merging left straight between their neighbours, on a spike without width or on
-/// top of the previous node.
-fn tidy(r: &mut Vec<usize>, nodes: &[P]) {
+/// Drops nodes that merging left on a spike without width or on top of the previous node, and those
+/// straight between their neighbours unless another building's corner: a T-junction of two walls.
+fn tidy(r: &mut Vec<usize>, nodes: &[P], ways_of: &mut [usize]) {
     while r.len() > 3 {
         let n = r.len();
         let Some(i) = (0..n).find(|&i| {
             let (a, b, c) = (nodes[r[(i + n - 1) % n]], nodes[r[i]], nodes[r[(i + 1) % n]]);
             let (_, off) = along(a, c, b);
-            dist(a, c) < STRAIGHT || off < STRAIGHT || dist(a, b) < STRAIGHT
+            dist(a, c) < STRAIGHT || (off < STRAIGHT && ways_of[r[i]] < 2) || dist(a, b) < STRAIGHT
         }) else {
             return;
         };
+        ways_of[r[i]] -= 1;
         r.remove(i);
     }
 }

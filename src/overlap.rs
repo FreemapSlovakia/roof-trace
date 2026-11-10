@@ -77,6 +77,8 @@ pub fn clean(p: &Polygon<f64>) -> Polygon<f64> {
 const STRAIGHT: f64 = 0.05;
 /// Edges shorter than this (m) are left over from moving corners onto walls, not walls.
 const MIN_EDGE: f64 = 0.25;
+/// Walls meeting at a sharper angle than this (degrees) are a spike with some width.
+const SPIKE: f64 = 30.0;
 
 /// Drops repeated, straight-through and spike vertices that cutting and cleaning leave behind.
 pub fn tidy(p: &Polygon<f64>) -> Polygon<f64> {
@@ -93,8 +95,10 @@ pub fn tidy(p: &Polygon<f64>) -> Polygon<f64> {
                 let (dx, dy) = (c.x - a.x, c.y - a.y);
                 let len = dx.hypot(dy);
                 let off = if len < STRAIGHT { 0.0 } else { ((b.x - a.x) * dy - (b.y - a.y) * dx).abs() / len };
-                // Straight through, out and straight back (a spike without width), or barely past the last corner.
-                off < STRAIGHT || (b.x - a.x).hypot(b.y - a.y) < MIN_EDGE
+                // Straight through, out and back (a spike without width or a sharp one), or barely past the last corner.
+                let (u, w) = (Coord { x: a.x - b.x, y: a.y - b.y }, Coord { x: c.x - b.x, y: c.y - b.y });
+                let sharp = u.x * w.x + u.y * w.y > SPIKE.to_radians().cos() * u.x.hypot(u.y) * w.x.hypot(w.y);
+                off < STRAIGHT || (b.x - a.x).hypot(b.y - a.y) < MIN_EDGE || sharp
             }) else {
                 break;
             };

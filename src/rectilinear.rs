@@ -12,9 +12,9 @@ pub fn outline(points: &[P], cover: &[P], theta: f64, res: f64, jog: f64, min_ar
     let (sin, cos) = theta.sin_cos();
     let to_rot = |p: &P| {
         let (dx, dy) = (p[0] - c[0], p[1] - c[1]);
-        [dx * cos + dy * sin, -dx * sin + dy * cos, 0.0]
+        [dx * cos + dy * sin, -dx * sin + dy * cos, 0.0, f64::NAN]
     };
-    let rot: Vec<[f64; 3]> = points.iter().map(to_rot).collect();
+    let rot: Vec<crate::store::Pt> = points.iter().map(to_rot).collect();
     let rot_cover: Vec<[f64; 2]> = cover.iter().map(|p| {
         let r = to_rot(p);
         [r[0], r[1]]

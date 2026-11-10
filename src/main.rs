@@ -100,6 +100,8 @@ const MIN_PART: f64 = 30.0;
 
 /// Corners this close to a shared wall are moved onto it (m).
 const WALL_SNAP: f64 = 0.75;
+/// How far past a shared wall (m) a house's outline is cut back to it.
+const WALL_CUT: f64 = 3.0;
 
 /// Cell size of the roof surface used for splitting (m).
 const SPLIT_RES: f64 = 0.5;
@@ -127,6 +129,8 @@ const REVIEW_CORNERS: usize = 8;
 const SPARSE_ROOF: f64 = 0.6;
 /// ... and split on this grid (m).
 const SPARSE_SPLIT_RES: f64 = 1.0;
+/// Cell (m) on which that share is measured, not the mask's: finer cells empty out on any roof.
+const SPARSE_CELL: f64 = 0.25;
 /// Percentile of a part's point heights below which points are walls, not roof.
 const EAVE_PCT: usize = 5;
 /// Degrees by which the bounding box's direction must differ from the walls' to be tried as well ...
@@ -293,8 +297,8 @@ fn trace_area(cloud: &Cloud, blobs: Vec<outline::Building>, area: [f64; 4], args
             let thetas = regularize::wall_orientations(&b.rings[0], args.simplify);
             // Roof faces fitted to a few points per cell are noise; a sparse roof is split coarser.
             let seen: std::collections::BTreeSet<(i64, i64)> =
-                b.points.iter().map(|p| ((p[0] / args.res).floor() as i64, (p[1] / args.res).floor() as i64)).collect();
-            let share = seen.len() as f64 * args.res * args.res / b.area;
+                b.points.iter().map(|p| ((p[0] / SPARSE_CELL).floor() as i64, (p[1] / SPARSE_CELL).floor() as i64)).collect();
+            let share = seen.len() as f64 * SPARSE_CELL * SPARSE_CELL / b.area;
             let res = if share < SPARSE_ROOF { SPARSE_SPLIT_RES } else { SPLIT_RES };
             if debug {
                 eprintln!("{:.0}% of the mask's cells have points; split at {res} m", share * 100.0);
@@ -349,7 +353,44 @@ fn trace_area(cloud: &Cloud, blobs: Vec<outline::Building>, area: [f64; 4], args
             };
             let mut rings = rings.into_iter();
             let outer = ring(rings.next().unwrap());
-            let poly = geo::Polygon::new(outer, rings.map(ring).collect());
+            let mut poly = geo::Polygon::new(outer, rings.map(ring).collect());
+            // Corners too far to snap still reach past the wall into the neighbour: cut them off there.
+            for wall in &walls {
+                let near: Vec<f64> = part
+                    .iter()
+                    .filter(|&&p| wall.offset(&p[..]).abs() < WALL_CUT && wall.along(&p[..]) > wall.t0 && wall.along(&p[..]) < wall.t1)
+                    .map(|p| wall.offset(&p[..]))
+                    .collect();
+                if debug {
+                    eprintln!("wall ({:.1}, {:.1}) dir ({:.2}, {:.2}) {:.1} to {:.1}: {} part points near", wall.p[0], wall.p[1], wall.dir[0], wall.dir[1], wall.t0, wall.t1, near.len());
+                }
+                if near.len() < 10 {
+                    continue;
+                }
+                let side = near.iter().sum::<f64>().signum();
+                let at = |t: f64, o: f64| {
+                    let o = -side * o;
+                    geo::Coord { x: wall.p[0] + t * wall.dir[0] - o * wall.dir[1], y: wall.p[1] + t * wall.dir[1] + o * wall.dir[0] }
+                };
+                let (t0, t1) = (wall.t0 - 1.0, wall.t1 + 1.0);
+                let beyond = geo::Polygon::new(
+                    geo::LineString(vec![at(t0, 0.0), at(t1, 0.0), at(t1, WALL_CUT), at(t0, WALL_CUT), at(t0, 0.0)]),
+                    vec![],
+                );
+                use geo::{Area, BooleanOps, Contains};
+                // A wall between parts later joined runs through the house: beyond it is its own roof.
+                let inside = |pts: &mut dyn Iterator<Item = [f64; 2]>| pts.filter(|p| beyond.contains(&geo::Point::new(p[0], p[1]))).count();
+                let own = inside(&mut part.iter().map(|p| [p[0], p[1]]));
+                if inside(&mut all.iter().copied()) < 2 * own {
+                    continue;
+                }
+                // Beyond a wall inside the outline is a part enclosed by it, not past its edge.
+                if let Some(cut) = poly.difference(&beyond).into_iter().max_by(|a, b| a.unsigned_area().total_cmp(&b.unsigned_area())) {
+                    if cut.interiors().len() <= poly.interiors().len() {
+                        poly = cut;
+                    }
+                }
+            }
             let roof = roof::roof(&part, debug);
             let mut tags = serde_json::Map::new();
             tags.insert("building".into(), "yes".into());
@@ -393,7 +434,7 @@ fn trace_area(cloud: &Cloud, blobs: Vec<outline::Building>, area: [f64; 4], args
 
 /// Outline of one house from its points: right-angled where that fits, else a free outline.
 /// Returns the rings, whether they are right-angled, and the house's mask.
-fn trace(points: &[[f64; 3]], veg: &VegIndex, args: &Args, debug: bool) -> Option<(Vec<Vec<[f64; 2]>>, bool, outline::Building)> {
+fn trace(points: &[store::Pt], veg: &VegIndex, args: &Args, debug: bool) -> Option<(Vec<Vec<[f64; 2]>>, bool, outline::Building)> {
     let mut q = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
     for p in points {
         q = [q[0].min(p[0]), q[1].min(p[1]), q[2].max(p[0]), q[3].max(p[1])];
@@ -512,7 +553,7 @@ impl VegIndex {
     }
 }
 
-fn write_dsm(path: &std::path::Path, q: [f64; 4], res: f64, pts: &[[f64; 3]]) -> Result<()> {
+fn write_dsm(path: &std::path::Path, q: [f64; 4], res: f64, pts: &[store::Pt]) -> Result<()> {
     use std::io::Write;
     let w = ((q[2] - q[0]) / res).ceil() as usize;
     let h = ((q[3] - q[1]) / res).ceil() as usize;
@@ -620,6 +661,16 @@ const SHED_STEP: f64 = 1.0;
 const EDGE_BAND: f64 = 0.75;
 const RIDGE_DROP: f64 = 0.5;
 
+/// Faces steeper than this (per m) slope off a ridge ...
+const RIDGE_SLOPE: f64 = 0.2;
+/// ... and a roof has a ridge direction where this share of their cells slopes across it.
+const RIDGE_CLEAR: f64 = 0.4;
+/// A wing's ridge turns this close to a right angle from the house's (degrees) ...
+const WING_SKEW: f64 = 15.0;
+/// ... with eaves and ridge this close to the house's (m).
+const WING_EAVES: f64 = 0.5;
+const WING_RIDGE: f64 = 0.7;
+
 /// A pair of parts the roof split should not have separated.
 fn misplit(traced: &[Part], debug: bool) -> Option<(usize, usize)> {
     use geo::{Area, BooleanOps, Distance, Euclidean};
@@ -631,7 +682,16 @@ fn misplit(traced: &[Part], debug: bool) -> Option<(usize, usize)> {
     let rings: Vec<&[[f64; 2]]> = traced.iter().map(|(_, t)| &t.0[0][..]).collect();
     let polys: Vec<_> = rings.iter().map(|r| poly(r)).collect();
     let areas: Vec<f64> = polys.iter().map(|p| p.unsigned_area()).collect();
-    let rects: Vec<(f64, f64)> = rings.iter().map(|r| min_rect(&[r])).collect();
+    let rects: Vec<(f64, f64, f64)> = rings.iter().map(|r| min_rect(&[r])).collect();
+    let ridge_dirs: Vec<Option<f64>> = traced.iter().map(|(p, _)| ridge_dir(p)).collect();
+    let roofing: Vec<f64> = traced
+        .iter()
+        .map(|(p, _)| {
+            let mut v: Vec<f64> = p.iter().map(|p| p[3]).filter(|i| !i.is_nan()).collect();
+            v.sort_by(f64::total_cmp);
+            v.get(v.len() / 2).copied().unwrap_or(f64::NAN)
+        })
+        .collect();
     let tops: Vec<f64> = traced.iter().map(|(_, t)| t.2.z_max).collect();
     let eaves: Vec<f64> = traced
         .iter()
@@ -660,7 +720,7 @@ fn misplit(traced: &[Part], debug: bool) -> Option<(usize, usize)> {
             if Euclidean.distance(a, b) > 0.5 {
                 continue;
             }
-            let (rect, _) = min_rect(&[rings[i], rings[j]]);
+            let (rect, _, _) = min_rect(&[rings[i], rings[j]]);
             let fill = (areas[i] + areas[j] - inter) / rect;
             let (small, big) = if areas[i] > areas[j] { (j, i) } else { (i, j) };
             let (fi, fj) = (areas[i] / rects[i].0, areas[j] / rects[j].0);
@@ -679,7 +739,7 @@ fn misplit(traced: &[Part], debug: bool) -> Option<(usize, usize)> {
             let strip = rects[small].1 < MAX_STRIP && (tops[i] - tops[j]).abs() < SHED_STEP && fill >= STRIP_FILL;
             // Two halves of one roof split along its ridge: the points along their common edge are the highest.
             let ridge = fill >= RIDGE_FILL && (ridges[i] - ridges[j]).abs() < SHED_STEP && {
-                let near = |pts: &[[f64; 3]], other: &geo::Polygon<f64>| {
+                let near = |pts: &[store::Pt], other: &geo::Polygon<f64>| {
                     pts.iter().filter(|p| Euclidean.distance(&geo::Point::new(p[0], p[1]), other) < EDGE_BAND).map(|p| p[2]).collect::<Vec<_>>()
                 };
                 let mut z = near(&traced[i].0, b);
@@ -693,7 +753,23 @@ fn misplit(traced: &[Part], debug: bool) -> Option<(usize, usize)> {
             if debug && ridge {
                 eprintln!("misplit {i} {j}: split along the ridge");
             }
-            if notch || interlock || strip || ridge {
+            // Ridges at right angles, at one height over the same eaves and roofing: a house with a wing.
+            // Houses in a row have their ridges alike.
+            let turn = match (ridge_dirs[i], ridge_dirs[j]) {
+                (Some(a), Some(b)) => (a - b).rem_euclid(std::f64::consts::PI),
+                _ => 0.0,
+            };
+            let wing = (turn - std::f64::consts::FRAC_PI_2).abs() < WING_SKEW.to_radians()
+                && (eaves[i] - eaves[j]).abs() < WING_EAVES
+                && (ridges[i] - ridges[j]).abs() < WING_RIDGE
+                && (roofing[i] - roofing[j]).abs() <= split::INT_TOL;
+            if debug {
+                eprintln!(
+                    "misplit {i} {j}: ridges turn {:.0}°, roofing {:.0} {:.0}, wing {wing}",
+                    turn.to_degrees(), roofing[i], roofing[j]
+                );
+            }
+            if notch || interlock || strip || ridge || wing {
                 return Some((i, j));
             }
         }
@@ -701,8 +777,31 @@ fn misplit(traced: &[Part], debug: bool) -> Option<(usize, usize)> {
     None
 }
 
-/// Area and short side of the smallest rectangle around `rings` aligned to one of their edges.
-fn min_rect(rings: &[&[[f64; 2]]]) -> (f64, f64) {
+/// Direction (radians, modulo π) of the ridge of a roof, across the slope of most of its faces;
+/// `None` for a flat roof or one sloping every way alike.
+fn ridge_dir(points: &[store::Pt]) -> Option<f64> {
+    let f = split::faces(points, 0.5);
+    let mut cells = vec![0usize; f.planes.len()];
+    for &l in &f.label {
+        cells[l] += 1;
+    }
+    let (mut c, mut s, mut n) = (0.0, 0.0, 0.0);
+    for (l, p) in f.planes.iter().enumerate().skip(1) {
+        if p.a.hypot(p.b) < RIDGE_SLOPE {
+            continue;
+        }
+        // Opposite faces of one ridge slope the same way modulo π: double the angle to add them.
+        let a = 2.0 * p.b.atan2(p.a);
+        c += cells[l] as f64 * a.cos();
+        s += cells[l] as f64 * a.sin();
+        n += cells[l] as f64;
+    }
+    (n > 0.0 && c.hypot(s) >= RIDGE_CLEAR * n).then(|| 0.5 * s.atan2(c) + std::f64::consts::FRAC_PI_2)
+}
+
+/// Area, short side and direction of the long side (radians) of the smallest rectangle around
+/// `rings` aligned to one of their edges.
+fn min_rect(rings: &[&[[f64; 2]]]) -> (f64, f64, f64) {
     let pts = || rings.iter().flat_map(|r| r.iter());
     rings
         .iter()
@@ -716,13 +815,14 @@ fn min_rect(rings: &[&[[f64; 2]]]) -> (f64, f64) {
                 hi = [hi[0].max(u), hi[1].max(v)];
             }
             let (w, h) = (hi[0] - lo[0], hi[1] - lo[1]);
-            (w * h, w.min(h))
+            let along = s.atan2(c);
+            (w * h, w.min(h), if w >= h { along } else { along + std::f64::consts::FRAC_PI_2 })
         })
-        .fold((f64::MAX, 0.0), |a, b| if b.0 < a.0 { b } else { a })
+        .fold((f64::MAX, 0.0, 0.0), |a, b| if b.0 < a.0 { b } else { a })
 }
 
 /// A part traced from its points, with its outline rings, whether they are right-angled, and its mask.
-type Part = (Vec<[f64; 3]>, (Vec<Vec<[f64; 2]>>, bool, outline::Building));
+type Part = (Vec<store::Pt>, (Vec<Vec<[f64; 2]>>, bool, outline::Building));
 
 /// Fills holes full of roof points: another part of the same roof enclosed by this one, not a
 /// courtyard. Parts inside a filled hole are dropped.

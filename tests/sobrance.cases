@@ -1,0 +1,5 @@
+# Around Sobrance, square -200000_-1260000; trace from its store.
+same -192060 -1246924 -192048 -1246932  # house whose lower end continues its walls, one building
+same -190072 -1247095 -190065 -1247091  # hipped house with a narrower, lower wing
+split -190270 -1246935 -190260 -1246929  # red lean-to and the flat garage beside it
+split -192154 -1247011 -192165 -1247002  # hipped house and the shed beside it

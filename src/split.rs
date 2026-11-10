@@ -3,7 +3,7 @@ use std::{
     f64::consts::FRAC_PI_2,
 };
 
-type P3 = [f64; 3];
+type P3 = crate::store::Pt;
 
 /// Roof faces of a building's points on a grid of `res` cells: the surface height of each cell,
 /// each cell's face (0 for none) and the faces' planes, in grid coordinates.
@@ -15,6 +15,8 @@ pub struct Faces {
     pub z: Vec<f64>,
     pub label: Vec<usize>,
     pub(crate) planes: Vec<Plane>,
+    /// Each cell's intensity, NaN where unknown.
+    pub int: Vec<f64>,
 }
 
 pub fn faces(points: &[P3], res: f64) -> Faces {
@@ -30,8 +32,12 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
     // The median of a cell's points: flight lines combined leave layers a few cm apart and stray
     // points, and the highest point would make the surface rough.
     let mut zs: Vec<Vec<f64>> = vec![Vec::new(); w * ht];
+    let mut is: Vec<Vec<f64>> = vec![Vec::new(); w * ht];
     for p in points {
         zs[cell(p)].push(p[2]);
+        if !p[3].is_nan() {
+            is[cell(p)].push(p[3]);
+        }
     }
     let mut z: Vec<f64> = zs
         .iter_mut()
@@ -69,6 +75,22 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
         }
     }
     let inside: Vec<bool> = (0..z.len()).map(|k| mask[k] && !z[k].is_nan()).collect();
+    // A few returns per cell are speckled; the median over the 3×3 neighbourhood is the roof's.
+    let int: Vec<f64> = (0..z.len())
+        .map(|k| {
+            let (i, j) = ((k % w) as isize, (k / w) as isize);
+            let mut v: Vec<f64> = (-1..=1)
+                .flat_map(|dj| (-1..=1).map(move |di| (i + di, j + dj)))
+                .filter(|&(a, b)| a >= 0 && b >= 0 && (a as usize) < w && (b as usize) < ht)
+                .flat_map(|(a, b)| is[b as usize * w + a as usize].iter().copied())
+                .collect();
+            if v.is_empty() {
+                return f64::NAN;
+            }
+            v.sort_by(f64::total_cmp);
+            v[v.len() / 2]
+        })
+        .collect();
 
     // Local plane of each cell from its full 3×3 neighbourhood: slopes a, b (per m) and fit RMS.
     let at = |i: isize, j: isize| {
@@ -279,20 +301,40 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
             }
         }
     }
-    Faces { x0, y0, w, ht, z, label, planes }
+    Faces { x0, y0, w, ht, z, label, planes, int }
 }
 
 /// Splits the points of one building blob into houses by their roof faces: faces meeting at a ridge
 /// or hip are one roof; a valley, step or offset ridge between faces separates them. Parts smaller
 /// than `min_part` (m²) join the neighbour they share most boundary with.
 pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool) -> (Vec<Vec<P3>>, Vec<Wall>) {
-    let Faces { x0, y0, w, ht, z, mut label, planes } = faces(points, res);
+    let Faces { x0, y0, w, ht, z, mut label, planes, int } = faces(points, res);
+    let face = label.clone();
     let cell = |p: &P3| ((p[1] - y0) / res) as usize * w + ((p[0] - x0) / res) as usize;
     let nb = |k: usize| neighbours(k, w, ht);
     let at = |i: isize, j: isize| {
         (i >= 0 && j >= 0 && (i as usize) < w && (j as usize) < ht).then(|| j as usize * w + i as usize)
     };
     let pos = |k: usize| [((k % w) as f64 + 0.5) * res, ((k / w) as f64 + 0.5) * res];
+    // Median intensity of each label's cells; labels of unlike roofing are not one roof.
+    let roofing = |label: &[usize]| {
+        let mut v: BTreeMap<usize, Vec<f64>> = BTreeMap::new();
+        for (k, &l) in label.iter().enumerate() {
+            if l != 0 && !int[k].is_nan() {
+                v.entry(l).or_default().push(int[k]);
+            }
+        }
+        v.into_iter()
+            .map(|(l, mut v)| {
+                v.sort_by(f64::total_cmp);
+                (l, v[v.len() / 2])
+            })
+            .collect::<BTreeMap<usize, f64>>()
+    };
+    let unlike = |m: &BTreeMap<usize, f64>, a: usize, b: usize| {
+        m.get(&a).zip(m.get(&b)).is_some_and(|(x, y)| (x - y).abs() > INT_TOL)
+    };
+    let face_roofing = roofing(&label);
 
     // Faces of one roof meet at ridges and hips: continuous, and each falling away from the edge.
     // Valleys, steps and offset ridges separate roofs, or wings that are easier joined than split.
@@ -359,14 +401,15 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
         // Neighbours' coplanar faces touch at a corner or a neck; pieces of one face share much of
         // their outline.
         let outline = perim[&r].min(perim[&s]) as f64;
-        let pieces = total >= MIN_COPLANAR_EDGE && total as f64 >= COPLANAR_SHARE * outline;
-        let same = if pieces { same + coplanar } else { same };
+        let pieces = total >= MIN_COPLANAR_EDGE && (total as f64 >= COPLANAR_SHARE * outline || coplanar >= COPLANAR_RUN);
+        let same = if pieces && !unlike(&face_roofing, r, s) { same + coplanar } else { same };
         // A wing meets the main roof in a valley running diagonally across the walls; neighbouring
         // houses meet in one running along them.
         let wing = cont as f64 > SAME_ROOF_SHARE * total as f64
             && total >= MIN_COPLANAR_EDGE
-            && diagonal(&edge_pts[&(r, s)], thetas);
-        if wing || same as f64 > SAME_ROOF_SHARE * total as f64 {
+            && diagonal(&edge_pts[&(r, s)], thetas)
+            && !unlike(&face_roofing, r, s);
+        if wing || (same >= MIN_JOIN_EDGE && same as f64 > SAME_ROOF_SHARE * total as f64) {
             if debug {
                 let c = |f: usize| {
                     let v: Vec<[f64; 2]> = (0..z.len()).filter(|&k| label[k] == f).map(pos).collect();
@@ -387,9 +430,25 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
     }
 
     // Slivers, and strips too narrow for a house (side hips, eaves, porch roofs), join the neighbour
-    // they share most boundary with. A small roof well below that neighbour's is a shed or garage
-    // against the house and stays a building of its own.
+    // they share most boundary with. A small roof well below any neighbour's is a shed or garage
+    // against it and stays a building of its own, though wedged against a garage too.
     let cell_area = res * res;
+    // Where along `b`'s side part `a` meets it: the extents of their shared edge and of that side.
+    let side = |label: &[usize], a: usize, b: usize| {
+        let mut edge = Vec::new();
+        for k in (0..label.len()).filter(|&k| label[k] == a) {
+            for n in nb(k).filter(|&n| label[n] == b) {
+                let (p, q) = (pos(k), pos(n));
+                edge.push([(p[0] + q[0]) / 2.0, (p[1] + q[1]) / 2.0]);
+            }
+        }
+        let wall = Wall::fit(&edge)?;
+        let (lo, hi) = (0..label.len())
+            .filter(|&k| label[k] == b && wall.offset(&pos(k)).abs() < SIDE_REACH)
+            .map(|k| wall.along(&pos(k)))
+            .fold((f64::MAX, f64::MIN), |(lo, hi), t| (lo.min(t), hi.max(t)));
+        Some((wall.t0, wall.t1, lo, hi))
+    };
     let mut kept: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
     loop {
         let mut cells: BTreeMap<usize, Vec<[f64; 2]>> = BTreeMap::new();
@@ -421,13 +480,18 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
                 }
             }
         }
-        let Some((&into, &(edge, rise))) = shared.iter().max_by_key(|&(_, &(c, _))| c) else { break };
-        if rise / edge as f64 > SHED_STEP && area[&small] as f64 * cell_area >= MIN_SHED {
+        let Some((&into, _)) = shared.iter().max_by_key(|&(_, &(c, _))| c) else { break };
+        let total: usize = shared.values().map(|&(c, _)| c).sum();
+        let shed = shared.values().any(|&(c, rise)| c as f64 >= SHED_EDGE * total as f64 && rise / c as f64 > SHED_STEP);
+        if shed && area[&small] as f64 * cell_area >= MIN_SHED {
+            if debug {
+                eprintln!("small {small} ({} cells) below its neighbours {shared:?}: a shed", area[&small]);
+            }
             kept.insert(small);
             continue;
         }
         if debug {
-            eprintln!("small or thin {small} ({} cells) into {into}", area[&small]);
+            eprintln!("small or thin {small} ({} cells) into {into}, neighbours {shared:?}", area[&small]);
         }
         for l in label.iter_mut() {
             if *l == small {
@@ -456,12 +520,17 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
 
     // A party wall runs along the houses' axes; a split oblique to them is a roof split in two.
     // An annex whose roof stays at the house's eaves stays apart whatever its boundary: an
-    // L-shaped one fits an oblique line.
+    // L-shaped one fits an oblique line. But one continuing the house's walls and roof extends it, as
+    // does a smaller wing pitched like the house, narrower and with a lower ridge.
     loop {
         let mut zs: BTreeMap<usize, Vec<f64>> = BTreeMap::new();
+        let mut area: BTreeMap<usize, f64> = BTreeMap::new();
         for (k, &l) in label.iter().enumerate() {
-            if l != 0 && !z[k].is_nan() {
-                zs.entry(l).or_default().push(z[k]);
+            if l != 0 {
+                *area.entry(l).or_default() += cell_area;
+                if !z[k].is_nan() {
+                    zs.entry(l).or_default().push(z[k]);
+                }
             }
         }
         let pct = |l: usize, q: f64| {
@@ -470,15 +539,84 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
             if v.is_empty() { f64::NAN } else { v[((v.len() - 1) as f64 * q) as usize] }
         };
         let below = |a: usize, b: usize| pct(a, 0.95) < pct(b, 0.05) + ANNEX_RISE;
-        let Some((lp, lq)) = boundaries(&label)
+        let bounds = boundaries(&label);
+        let part_roofing = roofing(&label);
+        let mut neighbours: BTreeMap<usize, usize> = BTreeMap::new();
+        for &(p, q) in bounds.keys() {
+            *neighbours.entry(p).or_default() += 1;
+            *neighbours.entry(q).or_default() += 1;
+        }
+        // Whether `a`'s roof falls away from its edge with `b`, continuing `b`'s rather than one of its own.
+        let falls_away = |a: usize, b: usize| {
+            let mut plane = Plane::default();
+            let (mut ca, mut na, mut ce, mut ne) = ([0.0; 2], 0.0, [0.0; 2], 0.0);
+            for k in (0..label.len()).filter(|&k| label[k] == a) {
+                let p = pos(k);
+                if !z[k].is_nan() {
+                    plane.add(p, z[k]);
+                }
+                ca = [ca[0] + p[0], ca[1] + p[1]];
+                na += 1.0;
+                if nb(k).any(|n| label[n] == b) {
+                    ce = [ce[0] + p[0], ce[1] + p[1]];
+                    ne += 1.0;
+                }
+            }
+            let Some((ga, gb, _)) = plane.solve() else { return false };
+            let away = [ca[0] / na - ce[0] / ne, ca[1] / na - ce[1] / ne];
+            let (s, d) = (ga.hypot(gb), away[0].hypot(away[1]));
+            s > ANNEX_SLOPE && d > 0.0 && -(ga * away[0] + gb * away[1]) / (s * d) > AWAY_COS
+        };
+        // Share of the edge between `a` and `b` along which their faces slope alike: one roof, offset.
+        let parallel = |a: usize, b: usize| {
+            let (mut same, mut all) = (0, 0);
+            for k in (0..label.len()).filter(|&k| label[k] == a) {
+                for n in nb(k).filter(|&n| label[n] == b) {
+                    let (pr, ps) = (&planes[face[k]], &planes[face[n]]);
+                    all += 1;
+                    if face[k] != 0 && face[n] != 0 && pr.a.hypot(pr.b) > ANNEX_SLOPE && (pr.a - ps.a).abs() + (pr.b - ps.b).abs() < SLOPE_TOL {
+                        same += 1;
+                    }
+                }
+            }
+            all > 0 && same as f64 >= SAME_ROOF_SHARE * all as f64
+        };
+        let Some((lp, lq)) = bounds
             .into_iter()
-            .find(|&((p, q), ref b)| Wall::fit(b).is_some_and(|w| w.axis(thetas).is_none()) && !below(p, q) && !below(q, p))
+            .find(|&((p, q), ref b)| {
+                // An extension or wing has no other neighbour.
+                let extension = |a: usize, b: usize| {
+                    if neighbours[&a] > 1 {
+                        return false;
+                    }
+                    let Some((t0, t1, lo, hi)) = side(&label, a, b) else { return false };
+                    let flush = t1 - t0 >= FLUSH_SHARE * (hi - lo);
+                    if debug {
+                        eprintln!("{a} against {b}: edge {:.1} to {:.1} of side {:.1} to {:.1}", t0 - lo, t1 - lo, 0.0, hi - lo);
+                    }
+                    (area[&a] < MAX_EXTENSION && below(a, b) && flush && falls_away(a, b))
+                        || (area[&a] < WING_SHARE * area[&b]
+                            && !below(a, b)
+                            && pct(a, 0.95) < pct(b, 0.95)
+                            && !flush
+                            && parallel(a, b))
+                };
+                let oblique = Wall::fit(b).is_some_and(|w| w.axis(thetas).is_none())
+                    && !stepped(b, thetas)
+                    && !below(p, q)
+                    && !below(q, p)
+                    && !unlike(&part_roofing, p, q);
+                oblique || extension(p, q) || extension(q, p)
+            })
             .map(|(k, _)| k)
         else {
             break;
         };
         if debug {
-            eprintln!("oblique split: {lp} (roof {:.1} to {:.1}) + {lq} ({:.1} to {:.1})", pct(lp, 0.05), pct(lp, 0.95), pct(lq, 0.05), pct(lq, 0.95));
+            eprintln!(
+                "oblique split or extension: {lp} (roof {:.1} to {:.1}, intensity {:?}) + {lq} ({:.1} to {:.1}, {:?})",
+                pct(lp, 0.05), pct(lp, 0.95), part_roofing.get(&lp), pct(lq, 0.05), pct(lq, 0.95), part_roofing.get(&lq)
+            );
         }
         for l in label.iter_mut() {
             if *l == lq {
@@ -492,8 +630,33 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
     // The watershed line between two houses follows the raster; their shared wall is straight.
     let mut walls = Vec::new();
     for ((lp, lq), b) in boundaries(&label) {
-        let Some(mut wall) = Wall::fit(&b) else { continue };
-        let Some(axis) = wall.axis(thetas) else { continue };
+        let Some(mut wall) = Wall::fit(&b) else {
+            if debug {
+                eprintln!("boundary {lp}-{lq}: {} cells, too short for a wall", b.len());
+            }
+            continue;
+        };
+        // A stepped boundary fits a skewed line; the wall is its longest run.
+        let (axis, b) = match wall.axis(thetas) {
+            Some(axis) => (axis, b),
+            None if stepped(&b, thetas) => {
+                let Some((axis, run)) = runs(&b, thetas).into_iter().next() else { continue };
+                if debug {
+                    eprintln!("boundary {lp}-{lq}: stepped, longest run {} of {} cells at {:.0}°", run.len(), b.len(), axis.to_degrees());
+                }
+                // Its position from the run, its extent from the whole boundary.
+                let n = run.len() as f64;
+                wall.p = run.iter().fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
+                (axis, b)
+            }
+            None => {
+                if debug {
+                    eprintln!("boundary {lp}-{lq}: not stepped: runs {:?}", runs(&b, thetas).iter().map(|(a, r)| (a.to_degrees().round(), r.len())).collect::<Vec<_>>());
+                    eprintln!("boundary {lp}-{lq}: at {:.0}° off the axes {thetas:?}", wall.dir[1].atan2(wall.dir[0]).to_degrees());
+                }
+                continue;
+            }
+        };
         wall.set_dir(axis, &b);
         // Which side is `lp`: the mean offset of its points near the wall.
         let near = |p: &P3| wall.offset(p).abs() < WALL_REACH && wall.along(p) > wall.t0 - 1.0 && wall.along(p) < wall.t1 + 1.0;
@@ -598,6 +761,8 @@ const MIN_SUPPORT: usize = 3;
 const PLANE_TOL: f64 = 0.2;
 /// Largest slope difference (sum of both components, per m) of a flat cell joining a face.
 const SLOPE_TOL: f64 = 0.35;
+/// Faces or parts whose median intensities differ by more are of unlike roofing.
+pub const INT_TOL: f64 = 6000.0;
 /// Faces smaller than this many cells are dissolved into their neighbours.
 const MIN_PLANE_CELLS: usize = 20;
 /// Two faces are continuous where they meet within this height (m).
@@ -605,6 +770,11 @@ const JOIN_TOL: f64 = 0.3;
 /// Share of the smaller face's outline that coplanar faces must share to be pieces of one face.
 const COPLANAR_SHARE: f64 = 0.25;
 
+/// Fewest boundary cells that look like one roof for faces to join: a few where faces touch over a
+/// step are noise.
+const MIN_JOIN_EDGE: usize = 6;
+/// Coplanar faces continuing each other along this many boundary cells are one face, however large.
+const COPLANAR_RUN: usize = 20;
 /// Shortest boundary (cells) along which coplanar faces are taken for pieces of one face.
 const MIN_COPLANAR_EDGE: usize = 6;
 
@@ -663,12 +833,26 @@ impl Plane {
     }
 }
 
-/// A small part whose roof is this much below its neighbour's along their edge is its own building (m).
+/// A small part whose roof is this much below a neighbour's along their edge is its own building (m) ...
 const SHED_STEP: f64 = 1.0;
+/// ... if that edge is at least this share of the part's edges with others.
+const SHED_EDGE: f64 = 0.3;
 /// A part whose roof tops out less than this (m) above another's eaves is an annex.
 const ANNEX_RISE: f64 = 0.5;
 /// ... if at least this large (m²).
 const MIN_SHED: f64 = 8.0;
+/// A part up to this large (m²) whose roof stays at its neighbour's eaves ...
+const MAX_EXTENSION: f64 = 50.0;
+/// ... and that shares this much of the neighbour's side extends it, rather than standing beside it.
+const FLUSH_SHARE: f64 = 0.8;
+/// A part's side is its cells this close to the edge it shares with another (m).
+const SIDE_REACH: f64 = 1.0;
+/// A wing, narrower than the house, is at most this share of its area.
+const WING_SHARE: f64 = 0.3;
+/// An extension's or wing's roof is pitched at least this much (per m) ...
+const ANNEX_SLOPE: f64 = 0.15;
+/// ... and an extension's falls away from the house within about 45°.
+const AWAY_COS: f64 = 0.7;
 
 /// Narrowest house split off a blob (m).
 const MIN_WIDTH: f64 = 3.0;
@@ -709,6 +893,39 @@ fn diagonal(b: &[[f64; 2]], thetas: &[f64]) -> bool {
     let d = (ang - t).rem_euclid(FRAC_PI_2);
     (d - FRAC_PI_2 / 2.0).abs() < DIAGONAL_TOL.to_radians()
 }
+
+/// Whether the boundary `b` runs along the walls in at most two straight runs, as between
+/// neighbours set back from each other, rather than across them as a valley of one roof.
+fn stepped(b: &[[f64; 2]], thetas: &[f64]) -> bool {
+    let on_runs: usize = runs(b, thetas).iter().map(|(_, r)| r.len()).sum();
+    on_runs as f64 >= STEP_SHARE * b.len() as f64
+}
+
+/// The two straight runs along the walls that take most of the boundary `b`, largest first: each
+/// one's direction (radians) and points.
+fn runs(b: &[[f64; 2]], thetas: &[f64]) -> Vec<(f64, Vec<[f64; 2]>)> {
+    let Some(&t) = thetas.first() else { return Vec::new() };
+    let (sin, cos) = t.sin_cos();
+    let mut left: Vec<([f64; 2], [f64; 2])> = b.iter().map(|p| ([p[0] * cos + p[1] * sin, -p[0] * sin + p[1] * cos], *p)).collect();
+    let mut out = Vec::new();
+    for _ in 0..2 {
+        // The line across either axis that takes most points.
+        let best = (0..2)
+            .flat_map(|ax| left.iter().map(move |(q, _)| (ax, q[ax])))
+            .max_by_key(|&(ax, v)| left.iter().filter(|(q, _)| (q[ax] - v).abs() < STEP_TOL).count());
+        let Some((ax, v)) = best else { break };
+        let (on, off): (Vec<_>, Vec<_>) = left.into_iter().partition(|(q, _)| (q[ax] - v).abs() < STEP_TOL);
+        // Points at one place across the first axis lie on a line along the second.
+        out.push((if ax == 0 { t + FRAC_PI_2 } else { t }, on.into_iter().map(|(_, p)| p).collect()));
+        left = off;
+    }
+    out
+}
+
+/// Boundary points within this of a run along the walls lie on it (m) ...
+const STEP_TOL: f64 = 0.5;
+/// ... and a boundary with this share of its points on two runs is stepped.
+const STEP_SHARE: f64 = 0.8;
 
 /// How far from 45° to the walls a valley may run and still join a wing (degrees).
 const DIAGONAL_TOL: f64 = 15.0;

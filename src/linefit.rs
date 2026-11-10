@@ -66,10 +66,17 @@ const MERGE_RMS: f64 = 0.3;
 const MIN_WALL: f64 = 0.8;
 /// Walls within this angle of the main axes are made exactly parallel or perpendicular (degrees).
 const ORTHO_TOL: f64 = 4.0;
+/// ... or, for shorter walls, within the angle this sideways offset (m) over the wall's length makes:
+/// the grid steps tilt a short wall's traced edge more.
+const ORTHO_NOISE: f64 = 1.0;
+/// No wall is snapped from further off than this (degrees).
+const ORTHO_MAX: f64 = 15.0;
 /// Walls at least this long decide whether a house is square (m).
 const MAIN_WALL: f64 = 3.0;
-/// Walls off the main axes shorter than this are dropped (m).
+/// Walls off the main axes shorter than this are dropped (m) ...
 const MIN_SKEWED_WALL: f64 = 2.0;
+/// ... or than this share of the longest wall: a porch roof's hip, not a skewed wall.
+const MIN_SKEWED_SHARE: f64 = 0.2;
 /// Parallel neighbouring walls offset less than this are one wall (m).
 const PARALLEL_MERGE: f64 = 0.8;
 
@@ -153,7 +160,8 @@ pub fn ring(r: &[P], res: f64, hidden: &dyn Fn(&P) -> bool) -> Option<(Vec<P>, b
     for l in lines.iter_mut() {
         let k = ((l.angle() - theta) / FRAC_PI_2).round();
         let d = l.angle() - theta - k * FRAC_PI_2;
-        if d.abs() < ORTHO_TOL.to_radians() {
+        let tol = (ORTHO_NOISE / l.len()).atan().clamp(ORTHO_TOL.to_radians(), ORTHO_MAX.to_radians());
+        if d.abs() < tol {
             let a = theta + k * FRAC_PI_2;
             l.dir = [a.cos(), a.sin()];
             l.ortho = true;
@@ -163,12 +171,13 @@ pub fn ring(r: &[P], res: f64, hidden: &dyn Fn(&P) -> bool) -> Option<(Vec<P>, b
     // A short wall off the main axes is a cut corner from the raster, and one along a tree crown
     // follows the tree: neither is a skewed wall.
     let shaded = |l: &Line| l.pts.iter().filter(|p| hidden(p)).count() * 2 > l.pts.len();
+    let min_skewed = MIN_SKEWED_WALL.max(MIN_SKEWED_SHARE * lines.iter().map(Line::len).fold(0.0, f64::max));
     loop {
         let k = lines.len();
         if k <= 4 {
             break;
         }
-        let Some(i) = (0..k).filter(|&i| !lines[i].ortho && (lines[i].len() < MIN_SKEWED_WALL || shaded(&lines[i]))).min_by(|&a, &b| lines[a].len().total_cmp(&lines[b].len()))
+        let Some(i) = (0..k).filter(|&i| !lines[i].ortho && (lines[i].len() < min_skewed || shaded(&lines[i]))).min_by(|&a, &b| lines[a].len().total_cmp(&lines[b].len()))
         else {
             break;
         };

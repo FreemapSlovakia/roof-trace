@@ -1,0 +1,29 @@
+# Around Sobrance, square -200000_-1260000: reported and not yet right.
+same -197067 -1255644 -197074.4 -1255651.5  # L-shaped house split across its body
+same -187212.6 -1245016.5 -187225.6 -1245009.8  # hip end of a house given to the shed beside it
+corners -198120.7 -1255046.3 4  # porch at the entrance makes a bulge
+same -186977.7 -1243226.3 -186973.9 -1243225.7  # house whose long roof slope flattens lower down
+split -186922.7 -1243203.4 -186921.7 -1243210.4  # lower shed at the end of a gabled house
+split -187108.4 -1243300.8 -187098.3 -1243292.6  # annex in the corner of a hipped house
+split -187157.4 -1243364.7 -187150.3 -1243382.6  # hipped house and the shed behind it
+split -187150.3 -1243382.6 -187148.0 -1243394.3  # shed and the garage behind it
+same -195262.6 -1245026.1 -195251.8 -1245018.0  # house cut across near its end
+split -191525.6 -1246854.4 -191530.0 -1246862.5  # lower shed at the end of a gabled house under trees
+split -191492.0 -1246862.8 -191496.7 -1246871.3  # lower brown-roofed end of a gabled house
+same -191716.0 -1246734.5 -191717.3 -1246740.9  # hipped house cut across its middle
+split -194434.7 -1246166.2 -194429.3 -1246165.5  # red gabled shed beside a flat grey one
+split -195477.9 -1244622.8 -195484.0 -1244629.5  # end section of a long shed, roofed apart
+split -195506.0 -1244617.8 -195505.0 -1244622.9  # small brown shed between two grey ones
+split -197146.0 -1252712.7 -197139.5 -1252708.7  # lower end of a gabled house with a notch
+split -197291.5 -1252298.7 -197298.8 -1252293.4  # small lean-to at the corner of a gabled house
+split -197058.5 -1252737.2 -197069.9 -1252745.7  # gabled end of a long row of flat sheds
+split -197082.2 -1252755.2 -197069.9 -1252745.7  # flat sheds of a long row, roofed apart
+split -196781.0 -1252553.7 -196781.0 -1252559.3  # lower strip along a flat-roofed house
+empty -196785.0 -1252560.5  # yard in the corner beside the lower strip
+empty -196786.7 -1252543.1  # yard in the corner of a hipped house
+split -196772.9 -1252485.5 -196770.5 -1252490.8  # row of small sheds behind a flat roof
+split -196805.1 -1252348.6 -196815.7 -1252354.3  # lower hipped end of a long house
+split -190047.7 -1246744.7 -190061.2 -1246741.4  # lower open shed at the end of a gabled house
+split -192037.9 -1246737.7 -192033.6 -1246739.3  # grey shed at the end of a brown one
+split -192033.6 -1246739.3 -192026.6 -1246743.7  # brown shed at the end of a gabled house
+split -191537.4 -1246800.2 -191542.3 -1246808.3  # light flat roof beside a dark one, in a row of garages

@@ -361,7 +361,7 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
             let e = votes.entry((r.min(s), r.max(s))).or_default();
             e.1 += 1;
             e.3 += continuous as usize;
-            if continuous && (ridge || flat) {
+            if continuous && (ridge || flat) && !pitches_differ(pr, ps) {
                 e.0 += 1;
             } else if continuous && coplanar {
                 e.2 += 1;
@@ -370,7 +370,13 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
     }
     if debug {
         for (r, p) in planes.iter().enumerate().skip(1) {
-            eprintln!("face {r}: slope ({:.2}, {:.2}) cells {}", p.a, p.b, p.n);
+            let v: Vec<[f64; 2]> = (0..z.len()).filter(|&k| label[k] == r).map(pos).collect();
+            let n = v.len() as f64;
+            let c = v.iter().fold([x0, y0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
+            eprintln!(
+                "face {r}: slope ({:.2}, {:.2}) cells {} at {:.1} {:.1}, intensity {:?}",
+                p.a, p.b, p.n, c[0], c[1], face_roofing.get(&r)
+            );
         }
         for ((r, s), (same, total, coplanar, _)) in &votes {
             eprintln!("faces {r}-{s}: {same} of {total} boundary cells look like one roof, {coplanar} coplanar");
@@ -397,6 +403,8 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
         }
         x
     }
+    let mut joins: Vec<(usize, usize, bool)> = Vec::new();
+    let mut support: BTreeMap<(usize, usize), usize> = BTreeMap::new();
     for (&(r, s), &(same, total, coplanar, cont)) in &votes {
         // Neighbours' coplanar faces touch at a corner or a neck; pieces of one face share much of
         // their outline.
@@ -417,17 +425,79 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
                     v.iter().fold([x0, y0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n])
                 };
                 let (cr, cs) = (c(r), c(s));
-                eprintln!("join {r} ({:.1}, {:.1}) + {s} ({:.1}, {:.1}): {same}/{total}", cr[0], cr[1], cs[0], cs[1]);
+                eprintln!("join {r} ({:.1}, {:.1}) + {s} ({:.1}, {:.1}): {same}/{total}{}", cr[0], cr[1], cs[0], cs[1], if wing { ", wing" } else { "" });
             }
-            let (fr, fs) = (find(&mut root, r), find(&mut root, s));
-            root[fr] = fs;
+            // Only a ridge between two roofs is a bridge to judge; pieces of one face are one roof.
+            let flat_pair = (planes[r].a - planes[s].a).abs() + (planes[r].b - planes[s].b).abs() < PIECE_TOL;
+            joins.push((r, s, wing || flat_pair));
         }
+        support.insert((r, s), if wing { total } else { same.min(total) });
+    }
+    // An annex's roof joined to a house's through one short ridge, but stepped from it along the rest
+    // of their boundary, is a building of its own.
+    let groups = |joins: &[(usize, usize, bool)], skip: usize| {
+        let mut root: Vec<usize> = (0..planes.len()).collect();
+        for (i, &(r, s, _)) in joins.iter().enumerate() {
+            if i != skip {
+                let (fr, fs) = (find(&mut root, r), find(&mut root, s));
+                root[fr] = fs;
+            }
+        }
+        (0..planes.len()).map(|f| find(&mut root, f)).collect::<Vec<_>>()
+    };
+    let mut unjoined = Vec::new();
+    loop {
+        let mut weakest: Option<(f64, usize, usize, usize)> = None;
+        for i in (0..joins.len()).filter(|&i| !joins[i].2) {
+            let g = groups(&joins, i);
+            let (ga, gb) = (g[joins[i].0], g[joins[i].1]);
+            if ga == gb {
+                continue;
+            }
+            let (mut same, mut total) = (0, 0);
+            for (&(r, s), &(_, t, _, cont)) in &votes {
+                if (g[r] == ga && g[s] == gb) || (g[r] == gb && g[s] == ga) {
+                    same += support[&(r, s)].max(cont);
+                    total += t;
+                }
+            }
+            let share = same as f64 / total as f64;
+            // Cells, eaves and roof top of each side; the smaller must top out at the other's eaves.
+            let side = |grp: usize| {
+                let mut h: Vec<f64> = (0..z.len()).filter(|&k| label[k] != 0 && g[label[k]] == grp && !z[k].is_nan()).map(|k| z[k]).collect();
+                h.sort_by(f64::total_cmp);
+                let at = |q: usize| h.get(h.len() * q / 100).copied().unwrap_or(f64::NAN);
+                (h.len(), at(5), at(95))
+            };
+            let (a, b) = (side(ga), side(gb));
+            let (small, large) = if a.0 < b.0 { (a, b) } else { (b, a) };
+            if debug {
+                eprintln!("bridge {} + {}: share {share:.2}, top {:.1} against eaves {:.1}", joins[i].0, joins[i].1, small.2, large.1);
+            }
+            if !(small.2 < large.1 + ANNEX_RISE) {
+                continue;
+            }
+            if weakest.is_none_or(|w| share < w.0) {
+                weakest = Some((share, i, same, total));
+            }
+        }
+        let Some((share, i, same, total)) = weakest.filter(|w| w.0 < BRIDGE_SHARE) else { break };
+        if debug {
+            eprintln!("unjoin {} + {}: {same} of {total} boundary cells between their roofs look like one or are continuous ({share:.2})", joins[i].0, joins[i].1);
+        }
+        unjoined.extend([joins[i].0, joins[i].1]);
+        joins.remove(i);
+    }
+    for &(r, s, _) in &joins {
+        let (fr, fs) = (find(&mut root, r), find(&mut root, s));
+        root[fr] = fs;
     }
     for l in label.iter_mut() {
         if *l != 0 {
             *l = find(&mut root, *l);
         }
     }
+    let unjoined: Vec<usize> = unjoined.into_iter().map(|f| find(&mut root, f)).collect();
 
     // Slivers, and strips too narrow for a house (side hips, eaves, porch roofs), join the neighbour
     // they share most boundary with. A small roof well below any neighbour's is a shed or garage
@@ -483,9 +553,11 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
         let Some((&into, _)) = shared.iter().max_by_key(|&(_, &(c, _))| c) else { break };
         let total: usize = shared.values().map(|&(c, _)| c).sum();
         let shed = shared.values().any(|&(c, rise)| c as f64 >= SHED_EDGE * total as f64 && rise / c as f64 > SHED_STEP);
-        if shed && area[&small] as f64 * cell_area >= MIN_SHED {
+        // A roof of its own, stepped from the one it touches, is a building however small.
+        let own = unjoined.contains(&small) && width(&cells[&small]) >= MIN_WIDTH;
+        if (shed || own) && area[&small] as f64 * cell_area >= MIN_SHED {
             if debug {
-                eprintln!("small {small} ({} cells) below its neighbours {shared:?}: a shed", area[&small]);
+                eprintln!("small {small} ({} cells), neighbours {shared:?}: a shed or a roof of its own", area[&small]);
             }
             kept.insert(small);
             continue;
@@ -546,27 +618,6 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
             *neighbours.entry(p).or_default() += 1;
             *neighbours.entry(q).or_default() += 1;
         }
-        // Whether `a`'s roof falls away from its edge with `b`, continuing `b`'s rather than one of its own.
-        let falls_away = |a: usize, b: usize| {
-            let mut plane = Plane::default();
-            let (mut ca, mut na, mut ce, mut ne) = ([0.0; 2], 0.0, [0.0; 2], 0.0);
-            for k in (0..label.len()).filter(|&k| label[k] == a) {
-                let p = pos(k);
-                if !z[k].is_nan() {
-                    plane.add(p, z[k]);
-                }
-                ca = [ca[0] + p[0], ca[1] + p[1]];
-                na += 1.0;
-                if nb(k).any(|n| label[n] == b) {
-                    ce = [ce[0] + p[0], ce[1] + p[1]];
-                    ne += 1.0;
-                }
-            }
-            let Some((ga, gb, _)) = plane.solve() else { return false };
-            let away = [ca[0] / na - ce[0] / ne, ca[1] / na - ce[1] / ne];
-            let (s, d) = (ga.hypot(gb), away[0].hypot(away[1]));
-            s > ANNEX_SLOPE && d > 0.0 && -(ga * away[0] + gb * away[1]) / (s * d) > AWAY_COS
-        };
         // Share of the edge between `a` and `b` along which their faces slope alike: one roof, offset.
         let parallel = |a: usize, b: usize| {
             let (mut same, mut all) = (0, 0);
@@ -584,9 +635,9 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
         let Some((lp, lq)) = bounds
             .into_iter()
             .find(|&((p, q), ref b)| {
-                // An extension or wing has no other neighbour.
-                let extension = |a: usize, b: usize| {
-                    if neighbours[&a] > 1 {
+                // A wing has no other neighbour.
+                let wing = |a: usize, b: usize| {
+                    if neighbours[&a] > 1 || unjoined.contains(&a) || unlike(&part_roofing, a, b) {
                         return false;
                     }
                     let Some((t0, t1, lo, hi)) = side(&label, a, b) else { return false };
@@ -594,19 +645,18 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
                     if debug {
                         eprintln!("{a} against {b}: edge {:.1} to {:.1} of side {:.1} to {:.1}", t0 - lo, t1 - lo, 0.0, hi - lo);
                     }
-                    (area[&a] < MAX_EXTENSION && below(a, b) && flush && falls_away(a, b))
-                        || (area[&a] < WING_SHARE * area[&b]
-                            && !below(a, b)
-                            && pct(a, 0.95) < pct(b, 0.95)
-                            && !flush
-                            && parallel(a, b))
+                    area[&a] < WING_SHARE * area[&b]
+                        && !below(a, b)
+                        && pct(a, 0.95) < pct(b, 0.95)
+                        && !flush
+                        && parallel(a, b)
                 };
                 let oblique = Wall::fit(b).is_some_and(|w| w.axis(thetas).is_none())
                     && !stepped(b, thetas)
                     && !below(p, q)
                     && !below(q, p)
                     && !unlike(&part_roofing, p, q);
-                oblique || extension(p, q) || extension(q, p)
+                oblique || wing(p, q) || wing(q, p)
             })
             .map(|(k, _)| k)
         else {
@@ -614,7 +664,7 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
         };
         if debug {
             eprintln!(
-                "oblique split or extension: {lp} (roof {:.1} to {:.1}, intensity {:?}) + {lq} ({:.1} to {:.1}, {:?})",
+                "oblique split or wing: {lp} (roof {:.1} to {:.1}, intensity {:?}) + {lq} ({:.1} to {:.1}, {:?})",
                 pct(lp, 0.05), pct(lp, 0.95), part_roofing.get(&lp), pct(lq, 0.05), pct(lq, 0.95), part_roofing.get(&lq)
             );
         }
@@ -761,6 +811,10 @@ const MIN_SUPPORT: usize = 3;
 const PLANE_TOL: f64 = 0.2;
 /// Largest slope difference (sum of both components, per m) of a flat cell joining a face.
 const SLOPE_TOL: f64 = 0.35;
+/// Faces falling more nearly opposite than this (cosine) are the two sides of one ridge.
+const OPPOSITE_COS: f64 = 0.9;
+/// Ratio of pitch angles beyond which such faces are of two roofs.
+const PITCH_RATIO: f64 = 1.6;
 /// Faces or parts whose median intensities differ by more are of unlike roofing.
 pub const INT_TOL: f64 = 6000.0;
 /// Faces smaller than this many cells are dissolved into their neighbours.
@@ -785,6 +839,12 @@ const CONVEX_EPS: f64 = 0.05;
 const FLAT: f64 = 0.05;
 /// Share of the boundary that must look like one roof for two faces to be joined.
 const SAME_ROOF_SHARE: f64 = 0.6;
+/// Share of the whole boundary between two roofs joined by a single pair of faces that must look
+/// like one roof.
+const BRIDGE_SHARE: f64 = 0.3;
+/// Largest slope difference (sum of both components, per m) of two pieces of one face, tighter than
+/// [`SLOPE_TOL`] so low roofs falling different ways are not taken for one.
+const PIECE_TOL: f64 = 0.15;
 
 /// A roof face z = a·x + b·y + c, with least-squares sums for refitting.
 #[derive(Default)]
@@ -841,18 +901,14 @@ const SHED_EDGE: f64 = 0.3;
 const ANNEX_RISE: f64 = 0.5;
 /// ... if at least this large (m²).
 const MIN_SHED: f64 = 8.0;
-/// A part up to this large (m²) whose roof stays at its neighbour's eaves ...
-const MAX_EXTENSION: f64 = 50.0;
-/// ... and that shares this much of the neighbour's side extends it, rather than standing beside it.
+/// A part sharing this much of its neighbour's side is flush with it, not a wing.
 const FLUSH_SHARE: f64 = 0.8;
 /// A part's side is its cells this close to the edge it shares with another (m).
 const SIDE_REACH: f64 = 1.0;
 /// A wing, narrower than the house, is at most this share of its area.
 const WING_SHARE: f64 = 0.3;
-/// An extension's or wing's roof is pitched at least this much (per m) ...
+/// A wing's roof is pitched at least this much (per m).
 const ANNEX_SLOPE: f64 = 0.15;
-/// ... and an extension's falls away from the house within about 45°.
-const AWAY_COS: f64 = 0.7;
 
 /// Narrowest house split off a blob (m).
 const MIN_WIDTH: f64 = 3.0;
@@ -946,6 +1002,16 @@ pub(crate) struct Meeting {
     /// A ridge or hip, of any direction, rather than a valley.
     pub ridge: bool,
     pub flat: bool,
+}
+
+/// Opposite faces of one gabled roof are pitched alike; a ridge between unlike pitches is where a
+/// lower or steeper roof abuts another.
+fn pitches_differ(pr: &Plane, ps: &Plane) -> bool {
+    let (nr, ns) = (pr.a.hypot(pr.b), ps.a.hypot(ps.b));
+    let opposite = pr.a * ps.a + pr.b * ps.b < -OPPOSITE_COS * nr * ns;
+    // Compared as angles: steep roofs differ more in slope for the same difference in look.
+    let (ar, as_) = (nr.atan(), ns.atan());
+    opposite && ar.max(as_) > PITCH_RATIO * ar.min(as_)
 }
 
 pub(crate) fn meet(pr: &Plane, ps: &Plane, pk: [f64; 2], pn: [f64; 2], res: f64) -> Meeting {

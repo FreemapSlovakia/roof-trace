@@ -78,6 +78,11 @@ impl Grid {
         g
     }
 
+    /// The mask: its origin, cell size, width and height in cells, and which cells are building.
+    pub fn mask(&self) -> (f64, f64, f64, usize, usize, &[bool]) {
+        (self.x0, self.y0, self.res, self.w, self.h, &self.occ)
+    }
+
     /// Per cell, the closing radius (cells) that bridges the spacing of the points around it.
     fn reach(&self) -> Vec<usize> {
         let (cw, ch) = (((self.w as f64 * self.res) / DENSITY_CELL).ceil() as usize, ((self.h as f64 * self.res) / DENSITY_CELL).ceil() as usize);

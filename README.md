@@ -49,7 +49,7 @@ around it, and deletes each square's store when done, or moves it to `KEEP`; `BI
 bins into `KEEP`. A stopped run resumes:
 
 ```sh
-INDEX=index.sqlite ./squares.sh -340000 -1200000 -320000 -1180000   # → work/sq/<x>_<y>.geojson, work/sq/<x>_<y>/*.osm
+INDEX=index.sqlite ./squares.sh -340000 -1200000 -320000 -1180000   # → work/sq/<x>_<y>.geojson, work/sq/<x>_<y>.osm
 ```
 
 A building belongs to the area its centroid falls in, so the outputs of neighbouring areas do not
@@ -60,23 +60,20 @@ overlap.
 - `--dsm dsm.asc` writes the highest building point per 0.25 m cell.
 - `ROOF_DEBUG=x,y[,radius]` prints how the buildings near a point were split and traced.
 - `--check tests/<area>.cases` checks pairs of points that must end up in the same building or in
-  different ones (`same|split x1 y1 x2 y2`).
+  different ones (`same|split x1 y1 x2 y2`), a building with at most n corners (`corners x y n`), or a point no building may cover
+  (`empty x y`).
 
 ## OSM export
 
 ```sh
-osmium tags-filter -o buildings.osm.pbf slovakia.osm.pbf w/building r/building
-osmium export -f geojsonseq -x print_record_separator=false --geometry-types=polygon \
-  -o buildings.geojsonseq buildings.osm.pbf
-osm-export --osm buildings.geojsonseq --out osm/ work/sq/*.geojson
+osm-export --out buildings.osm work/sq/*.geojson
 ```
 
-This writes `osm/new.osm`, the buildings OSM lacks, and `osm/overlap.osm`, those overlapping an
-existing OSM building, for comparing by hand. Corners of neighbouring buildings closer than 0.4 m
-become one node, and a corner on a neighbour's wall becomes a node of that wall, so attached
+This writes all traced buildings to one OSM file. Corners of neighbouring buildings closer than
+0.4 m become one node, and a corner on a neighbour's wall becomes a node of that wall, so attached
 buildings share their walls. Only the OSM tags above are written, with `source=LLS: ÚGKK SR`.
 
-The files are marked `upload="never"`: they are for review in JOSM, not for uploading unchecked.
+The file is marked `upload="never"`: it is for review in JOSM, not for uploading unchecked.
 
 `publish.sh` copies the finished squares of `squares.sh`, an overview `done.geojson` and
 `publish/README.md` (in Slovak, for the users of the files) to download.freemap.sk.

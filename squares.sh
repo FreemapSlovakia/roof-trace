@@ -2,10 +2,9 @@
 # Traces the squares of a grid over an area, each from the flight lines of every LOT around it:
 #   squares.sh xmin ymin xmax ymax [size]
 # Squares are aligned to multiples of size (m, default 20000) and done column by column from the
-# east. Each gives work/sq/<x>_<y>.geojson and, for review in JOSM, work/sq/<x>_<y>/{new,overlap}.osm.
+# east. Each gives work/sq/<x>_<y>.geojson and, for review in JOSM, work/sq/<x>_<y>.osm.
 # Squares without flight lines and finished squares are skipped, so a stopped run resumes.
-# INDEX names the flight-line index (default ~/fm/dm-maker/index.sqlite), OSM the existing OSM
-# buildings (default work/osm/buildings.geojsonseq, see README), STORE the directory for the
+# INDEX names the flight-line index (default ~/fm/dm-maker/index.sqlite), STORE the directory for the
 # squares' stores while they are worked on, up to two at a time (default work/sq), and KEEP, if set,
 # the directory finished stores are moved to and taken from when a square is redone; without it
 # they are deleted. BIN_ONLY=1 only bins the squares not in KEEP yet, into KEEP.
@@ -14,12 +13,10 @@ cd "$(dirname "$0")"
 read -r x0 y0 x1 y1 <<<"$1 $2 $3 $4"
 size=${5:-20000}
 index=${INDEX:-$HOME/fm/dm-maker/index.sqlite}
-osm=${OSM:-work/osm/buildings.geojsonseq}
 stores=${STORE:-work/sq}
 keep=${KEEP:-}
 bin_only=${BIN_ONLY:-}
 [ -z "$bin_only" ] || [ -n "$keep" ] || { echo "BIN_ONLY needs KEEP" >&2; exit 1; }
-[ -n "$bin_only" ] || [ -e "$osm" ] || { echo "$osm missing" >&2; exit 1; }
 mkdir -p work/sq "$stores" ${keep:+"$keep"}
 cargo build --release --quiet
 # run threads memory command…
@@ -46,8 +43,8 @@ finish() {
     run 10 10G ./target/release/roof-trace --store "$store" --bbox="$bbox" --out "$name.tmp.geojson" 2>"$name.trace.log"
     mv "$name.tmp.geojson" "$name.geojson"
   fi
-  run 1 4G ./target/release/osm-export --osm "$osm" --out "$name.tmp" "$name.geojson" 2>"$name.export.log"
-  rm -rf "$name"; mv "$name.tmp" "$name"
+  run 1 4G ./target/release/osm-export --out "$name.tmp.osm" "$name.geojson" 2>"$name.export.log"
+  mv "$name.tmp.osm" "$name.osm"
   echo "$bbox: $binned trace $(($(date +%s) - start)) s, $(tail -1 "$name.trace.log"); export $(tr '\n' ' ' <"$name.export.log")"
   put_away "$store"
   ./publish.sh || echo "publishing failed"
@@ -61,7 +58,7 @@ for ((x = $(fl "$x1"); x >= $(fl "$x0"); x -= size)); do
     if [ -n "$bin_only" ]; then
       [ -e "$keep/${x}_${y}.sqlite" ] && continue
     else
-      [ -e "$name/overlap.osm" ] && continue
+      [ -e "$name.osm" ] && continue
     fi
     bbox=$x,$y,$((x + size)),$((y + size))
     lines=$(sqlite3 "$index" "select count(*) from laz_index

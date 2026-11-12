@@ -1,5 +1,24 @@
 # Around Sobrance, square -200000_-1260000; trace from its store.
-same -192060 -1246924 -192048 -1246932  # house whose lower end continues its walls, one building
+split -192060 -1246924 -192048 -1246932  # lower end of a house flush with its walls, roofed on its own
 same -190072 -1247095 -190065 -1247091  # hipped house with a narrower, lower wing
 split -190270 -1246935 -190260 -1246929  # red lean-to and the flat garage beside it
 split -192154 -1247011 -192165 -1247002  # hipped house and the shed beside it
+corners -193172.5 -1250030.6 4  # long hipped house, straight walls
+corners -193114.4 -1249738.1 4  # house whose north wall a lower strip stepped
+corners -195686.4 -1249112.5 4  # shed against a house, no notch in their wall
+corners -196140.6 -1248835.1 4  # house beside one under a tree, straight wall between them
+corners -195776.3 -1249162.8 6  # row of houses, straight party walls
+corners -195348.7 -1241076.9 6  # hipped house between two neighbours, straight walls
+corners -195297.5 -1240930.4 12  # L-shaped house, right-angled
+corners -192574.9 -1250110.3 8  # hipped house with a small wing, right-angled
+split -186795.5 -1243181.0 -186787.2 -1243181.0  # two gabled houses side by side, a valley between them
+split -189468.2 -1242697.3 -189464.2 -1242706.8  # two barns end to end
+split -192162.8 -1246984.0 -192157.8 -1246986.1  # lower lean-to at the end of a lean-to house, joined by a short ridge
+empty -184342.3 -1244079.3  # corner of a wing left open under a tree
+same -184355.5 -1244086.4 -184348.2 -1244085.9  # piece of a wing in its valley with the house
+split -195517.5 -1244600.2 -195524.9 -1244617.1  # lower barn at the end of a gabled house
+same -194958.4 -1246149.8 -194952.3 -1246150.5  # north end of a gabled house, its faces' part in two pieces
+split -197339.5 -1252305.5 -197331.4 -1252300.3  # rusty gable beside a steeper grey roof on its ridge line
+split -197323.3 -1252358.9 -197314.8 -1252353.0  # lower end of a gabled house, darker in intensity
+split -197395.9 -1252625.5 -197389.4 -1252625.1  # lower end of a gabled house, pitched half as steep
+split -192032.1 -1246787.7 -192039.9 -1246785.0  # lower grey end of a gabled house

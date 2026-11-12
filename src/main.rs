@@ -1,10 +1,12 @@
 mod linefit;
 mod outline;
 mod overlap;
+mod partition;
 mod rectilinear;
 mod regularize;
 mod roof;
 mod split;
+mod valley;
 mod store;
 
 use std::{
@@ -78,6 +80,7 @@ struct Args {
     #[arg(long)]
     no_split: bool,
 
+
     /// Steps shorter than this are removed from right-angled outlines (m).
     #[arg(long, default_value_t = 1.0)]
     jog: f64,
@@ -86,7 +89,8 @@ struct Args {
     #[arg(long)]
     dsm: Option<PathBuf>,
 
-    /// Check the result against expected cases: lines `same|split x1 y1 x2 y2`, `#` comments.
+    /// Check the result against expected cases: lines `same|split x1 y1 x2 y2` or `corners x y n`
+    /// (at most n), `#` comments.
     #[arg(long)]
     check: Option<PathBuf>,
 
@@ -281,6 +285,7 @@ fn trace_area(cloud: &Cloud, blobs: Vec<outline::Building>, area: [f64; 4], args
     let [x0, y0, x1, y1] = area;
     let veg = VegIndex::new(&cloud.veg);
     let ground_z = GroundIndex::new(&cloud.ground);
+    let ground = VegIndex::new(&cloud.ground);
     let debug_at: Option<Vec<f64>> =
         std::env::var("ROOF_DEBUG").ok().map(|v| v.split(',').map(|s| s.parse().unwrap()).collect());
     let (mut polys, mut props) = (Vec::new(), Vec::new());
@@ -305,7 +310,24 @@ fn trace_area(cloud: &Cloud, blobs: Vec<outline::Building>, area: [f64; 4], args
             }
             let (parts, walls) = split::parts(&b.points, &thetas, res, MIN_PART, debug);
             // Too few faces to split by is one building, not none.
-            if parts.is_empty() { (vec![b.points], walls) } else { (parts, walls) }
+            let mut parts = if parts.is_empty() { vec![b.points] } else { parts };
+            if let Some(&t) = thetas.first() {
+                let mut k = 0;
+                while k < parts.len() {
+                    if let Some((a, c)) = valley::cut(&parts[k], t) {
+                        if debug {
+                            eprintln!("valley splits {} points into {} and {}", parts[k].len(), a.len(), c.len());
+                        }
+                        parts[k] = a;
+                        parts.push(c);
+                    } else {
+                        k += 1;
+                    }
+                }
+            }
+            // Faces of one part can lie apart; each piece is traced, or all but one would be lost.
+            let parts = parts.into_iter().flat_map(|p| pieces(p, args)).collect();
+            (parts, walls)
         };
         let mut traced: Vec<_> = parts
             .into_iter()
@@ -314,10 +336,11 @@ fn trace_area(cloud: &Cloud, blobs: Vec<outline::Building>, area: [f64; 4], args
                 Some((p, t))
             })
             .collect();
+        let theta = regularize::wall_orientations(&b.rings[0], args.simplify).first().copied().filter(|_| !args.no_split);
         // Holes filled and parts merged can each reveal more of the other, so both repeat until settled.
         loop {
             fill_roof_holes(&mut traced, &all);
-            let Some((i, j)) = misplit(&traced, debug) else { break };
+            let Some((i, j)) = misplit(&traced, theta, debug) else { break };
             let (pj, _) = traced.swap_remove(j);
             let mut pts = std::mem::take(&mut traced[i].0);
             pts.extend(pj);
@@ -328,6 +351,9 @@ fn trace_area(cloud: &Cloud, blobs: Vec<outline::Building>, area: [f64; 4], args
                 }
             }
         }
+        // All the blob's houses outlined together share their walls; an outline that does not fit
+        // right angles keeps the house's own.
+        let partitioned = !args.no_split && partition_blob(&mut traced, &all, &b.rings[0], &veg, &ground, args, debug);
         let first = polys.len();
         let mut tops = Vec::new();
         for (part, (mut rings, rect, pb)) in traced {
@@ -338,7 +364,7 @@ fn trace_area(cloud: &Cloud, blobs: Vec<outline::Building>, area: [f64; 4], args
             let fill = rect_fill(&rings[0]);
             let review = fill < REVIEW_FILL && rings[0].len() > REVIEW_CORNERS;
             // Houses traced apart meet on their shared walls only once their corners there are moved onto them.
-            for v in rings.iter_mut().flatten() {
+            for v in rings.iter_mut().flatten().filter(|_| !partitioned) {
                 for wall in &walls {
                     let t = wall.along(v);
                     if wall.offset(v).abs() < WALL_SNAP && t > wall.t0 - 2.0 && t < wall.t1 + 2.0 {
@@ -355,7 +381,7 @@ fn trace_area(cloud: &Cloud, blobs: Vec<outline::Building>, area: [f64; 4], args
             let outer = ring(rings.next().unwrap());
             let mut poly = geo::Polygon::new(outer, rings.map(ring).collect());
             // Corners too far to snap still reach past the wall into the neighbour: cut them off there.
-            for wall in &walls {
+            for wall in walls.iter().filter(|_| !partitioned) {
                 let near: Vec<f64> = part
                     .iter()
                     .filter(|&&p| wall.offset(&p[..]).abs() < WALL_CUT && wall.along(&p[..]) > wall.t0 && wall.along(&p[..]) < wall.t1)
@@ -434,6 +460,17 @@ fn trace_area(cloud: &Cloud, blobs: Vec<outline::Building>, area: [f64; 4], args
 
 /// Outline of one house from its points: right-angled where that fits, else a free outline.
 /// Returns the rings, whether they are right-angled, and the house's mask.
+/// The points' separate pieces, as traced.
+fn pieces(points: Vec<store::Pt>, args: &Args) -> Vec<Vec<store::Pt>> {
+    let mut q = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+    for p in &points {
+        q = [q[0].min(p[0]), q[1].min(p[1]), q[2].max(p[0]), q[3].max(p[1])];
+    }
+    let q = [q[0] - 2.0, q[1] - 2.0, q[2] + 2.0, q[3] + 2.0];
+    let b = outline::Grid::new(q, args.res, &points, &[]).buildings(args.min_area);
+    if b.len() > 1 { b.into_iter().map(|b| b.points).collect() } else { vec![points] }
+}
+
 fn trace(points: &[store::Pt], veg: &VegIndex, args: &Args, debug: bool) -> Option<(Vec<Vec<[f64; 2]>>, bool, outline::Building)> {
     let mut q = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
     for p in points {
@@ -576,7 +613,8 @@ fn write_dsm(path: &std::path::Path, q: [f64; 4], res: f64, pts: &[store::Pt]) -
     Ok(())
 }
 
-/// Reports, for each expected case, whether its two points fall in one building or in two.
+/// Reports, for each expected case, whether its two points fall in one building or in two, or
+/// whether the building at a point has at most so many corners.
 fn check(path: &std::path::Path, polys: &[geo::Polygon<f64>]) -> Result<()> {
     use geo::Contains;
     let find = |x: f64, y: f64| polys.iter().position(|p| p.contains(&geo::Point::new(x, y)));
@@ -584,19 +622,29 @@ fn check(path: &std::path::Path, polys: &[geo::Polygon<f64>]) -> Result<()> {
     for line in std::fs::read_to_string(path)?.lines() {
         let (case, note) = line.split_once('#').map_or((line, ""), |(c, n)| (c, n.trim()));
         let f: Vec<&str> = case.split_whitespace().collect();
-        if f.len() != 5 {
+        if f.is_empty() {
             continue;
         }
         let v: Vec<f64> = f[1..].iter().map(|s| s.parse()).collect::<Result<_, _>>()?;
-        let (a, b) = (find(v[0], v[1]), find(v[2], v[3]));
-        let ok = match f[0] {
-            "same" => a.is_some() && a == b,
-            "split" => a.is_some() && b.is_some() && a != b,
-            other => bail!("unknown case kind {other}"),
+        let (ok, got) = match (f[0], v.len()) {
+            ("same" | "split", 4) => {
+                let (a, b) = (find(v[0], v[1]), find(v[2], v[3]));
+                let ok = if f[0] == "same" { a.is_some() && a == b } else { a.is_some() && b.is_some() && a != b };
+                (ok, format!("{a:?}, {b:?}"))
+            }
+            ("corners", 3) => {
+                let n = find(v[0], v[1]).map(|i| polys[i].exterior().0.len() - 1);
+                (n.is_some_and(|n| n as f64 <= v[2]), format!("{n:?} corners"))
+            }
+            ("empty", 2) => {
+                let a = find(v[0], v[1]);
+                (a.is_none(), format!("{a:?}"))
+            }
+            (other, _) => bail!("bad case: {other} with {} numbers", v.len()),
         };
         total += 1;
         pass += ok as usize;
-        eprintln!("{} {} {note} ({a:?}, {b:?})", if ok { "PASS" } else { "FAIL" }, f[0]);
+        eprintln!("{} {} {note} ({got})", if ok { "PASS" } else { "FAIL" }, f[0]);
     }
     eprintln!("{pass} of {total} cases pass");
     Ok(())
@@ -672,7 +720,7 @@ const WING_EAVES: f64 = 0.5;
 const WING_RIDGE: f64 = 0.7;
 
 /// A pair of parts the roof split should not have separated.
-fn misplit(traced: &[Part], debug: bool) -> Option<(usize, usize)> {
+fn misplit(traced: &[Part], theta: Option<f64>, debug: bool) -> Option<(usize, usize)> {
     use geo::{Area, BooleanOps, Distance, Euclidean};
     let poly = |r: &[[f64; 2]]| {
         let mut c: Vec<geo::Coord<f64>> = r.iter().map(|&[x, y]| geo::Coord { x, y }).collect();
@@ -693,6 +741,14 @@ fn misplit(traced: &[Part], debug: bool) -> Option<(usize, usize)> {
         })
         .collect();
     let tops: Vec<f64> = traced.iter().map(|(_, t)| t.2.z_max).collect();
+    let medians: Vec<f64> = traced
+        .iter()
+        .map(|(p, _)| {
+            let mut z: Vec<f64> = p.iter().map(|p| p[2]).collect();
+            z.sort_by(f64::total_cmp);
+            z[z.len() / 2]
+        })
+        .collect();
     let eaves: Vec<f64> = traced
         .iter()
         .map(|(p, _)| {
@@ -735,8 +791,13 @@ fn misplit(traced: &[Part], debug: bool) -> Option<(usize, usize)> {
             let notch = fill >= NOTCH_FILL && fill > fb + 0.05 && rect < NOTCH_GROWTH * big && !annex;
             // Interlocking within the larger part's rectangle, but leaving another part's corner out.
             let interlock = rect < 1.02 * big && fi.max(fj) < REVIEW_FILL && fill > fi.max(fj) + 0.05;
-            // A narrow strip along a part, as high as it: a hip end or eave cut off, not a lean-to.
-            let strip = rects[small].1 < MAX_STRIP && (tops[i] - tops[j]).abs() < SHED_STEP && fill >= STRIP_FILL;
+            // A narrow strip along a part, as high as it: a hip end or eave cut off, not a lean-to. A
+            // lean-to against a gable wall takes points off the wall, so its top alone can match.
+            let other = if small == i { j } else { i };
+            let strip = rects[small].1 < MAX_STRIP
+                && (tops[i] - tops[j]).abs() < SHED_STEP
+                && medians[small] > eaves[other] + ANNEX_RISE
+                && fill >= STRIP_FILL;
             // Two halves of one roof split along its ridge: the points along their common edge are the highest.
             let ridge = fill >= RIDGE_FILL && (ridges[i] - ridges[j]).abs() < SHED_STEP && {
                 let near = |pts: &[store::Pt], other: &geo::Polygon<f64>| {
@@ -769,7 +830,14 @@ fn misplit(traced: &[Part], debug: bool) -> Option<(usize, usize)> {
                     turn.to_degrees(), roofing[i], roofing[j]
                 );
             }
-            if notch || interlock || strip || ridge || wing {
+            // Houses side by side under parallel roofs, however well they fill a rectangle together.
+            let valley = || {
+                theta.is_some_and(|t| {
+                    let both: Vec<store::Pt> = traced[i].0.iter().chain(&traced[j].0).copied().collect();
+                    valley::cut(&both, t).is_some()
+                })
+            };
+            if (notch || interlock || strip || ridge || wing) && !valley() {
                 return Some((i, j));
             }
         }
@@ -798,6 +866,104 @@ fn ridge_dir(points: &[store::Pt]) -> Option<f64> {
     }
     (n > 0.0 && c.hypot(s) >= RIDGE_CLEAR * n).then(|| 0.5 * s.atan2(c) + std::f64::consts::FRAC_PI_2)
 }
+
+/// Replaces the outlines of `traced`, the houses of one blob with outline `ring`, by one partition
+/// of the blob along its walls, if that fits; returns whether it did.
+fn partition_blob(traced: &mut Vec<Part>, all: &[[f64; 2]], ring: &[[f64; 2]], veg: &VegIndex, ground: &VegIndex, args: &Args, debug: bool) -> bool {
+    let Some(&theta) = regularize::wall_orientations(ring, args.simplify).first() else { return false };
+    let parts: Vec<&[store::Pt]> = traced.iter().map(|(p, _)| &p[..]).collect();
+    let mut q = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+    let mut z = Vec::new();
+    for p in parts.iter().flat_map(|p| p.iter()) {
+        q = [q[0].min(p[0]), q[1].min(p[1]), q[2].max(p[0]), q[3].max(p[1])];
+        z.push(p[2]);
+    }
+    if z.is_empty() {
+        return false;
+    }
+    z.sort_by(f64::total_cmp);
+    let eave = z[z.len() * EAVE_PCT / 100];
+    let q = [q[0] - 1.0, q[1] - 1.0, q[2] + 1.0, q[3] + 1.0];
+    let cover: Vec<[f64; 2]> = veg.query(q).filter(|p| p[2] > eave - 0.5).map(|p| [p[0], p[1]]).collect();
+    let bare: Vec<[f64; 2]> = ground.query(q).map(|p| [p[0], p[1]]).collect();
+    // A degree or two off turns a long wall into steps.
+    let steps = (PARTITION_SEARCH / PARTITION_STEP).round() as i32;
+    let own: Vec<&Vec<Vec<[f64; 2]>>> = traced.iter().map(|(_, t)| &t.0).collect();
+    let Some(best) = (-steps..=steps)
+        .filter_map(|k| partition::partition(&parts, &own, all, &cover, &bare, theta + (k as f64 * PARTITION_STEP).to_radians()))
+        .min_by(|a, b| a.cost.total_cmp(&b.cost))
+    else {
+        return false;
+    };
+    if debug {
+        eprintln!(
+            "partition: costs {:.1} against {:.1} of the houses' own outlines, {} of {} houses outlined, at {:.0} {:.0}",
+            best.cost, best.own_cost, best.rings.iter().flatten().count(), traced.len(), (q[0] + q[2]) / 2.0, (q[1] + q[3]) / 2.0
+        );
+    }
+    // Where the own outlines fit better, as with oblique walls the partition would make stairs of.
+    if best.cost > best.own_cost || best.rings.iter().all(Option::is_none) {
+        return false;
+    }
+    // A house left without blocks was a piece of the one that took its roof, unless it is stepped
+    // down from it or roofed unlike it: then the partition lost a house.
+    use geo::Contains;
+    let polys: Vec<Option<geo::Polygon<f64>>> = best.rings.iter().map(|r| r.as_ref().map(|r| ring_poly(&r[0]))).collect();
+    let pct = |p: &[store::Pt], q: usize| {
+        let mut z: Vec<f64> = p.iter().map(|p| p[2]).collect();
+        z.sort_by(f64::total_cmp);
+        z[(z.len() - 1) * q / 100]
+    };
+    let roofing = |p: &[store::Pt]| {
+        let mut v: Vec<f64> = p.iter().map(|p| p[3]).filter(|i| !i.is_nan()).collect();
+        v.sort_by(f64::total_cmp);
+        v.get(v.len() / 2).copied().unwrap_or(f64::NAN)
+    };
+    let mut takers = Vec::new();
+    for i in (0..traced.len()).filter(|&i| polys[i].is_none()) {
+        let mut votes = vec![0usize; traced.len()];
+        for p in &traced[i].0 {
+            if let Some(j) = polys.iter().position(|q| q.as_ref().is_some_and(|q| q.contains(&geo::Point::new(p[0], p[1])))) {
+                votes[j] += 1;
+            }
+        }
+        let j = (0..traced.len()).filter(|&j| polys[j].is_some()).max_by_key(|&j| votes[j]).unwrap();
+        let (a, b) = (&traced[i].0, &traced[j].0);
+        let stepped = pct(a, 95) < pct(b, 5) + ANNEX_RISE;
+        let unlike = (roofing(a) - roofing(b)).abs() > split::INT_TOL;
+        if debug {
+            eprintln!("partition: house {i} goes to {j}, stepped down {stepped}, roofed unlike {unlike}");
+        }
+        if stepped || unlike {
+            return false;
+        }
+        takers.push((i, j));
+    }
+    for (i, j) in takers {
+        let pts = std::mem::take(&mut traced[i].0);
+        traced[j].0.extend(pts);
+    }
+    let mut rings = best.rings.into_iter();
+    traced.retain_mut(|(_, t)| match rings.next().unwrap() {
+        Some(r) => {
+            t.0 = r;
+            t.1 = true;
+            true
+        }
+        None => false,
+    });
+    true
+}
+
+fn ring_poly(r: &[[f64; 2]]) -> geo::Polygon<f64> {
+    let mut c: Vec<geo::Coord<f64>> = r.iter().map(|&[x, y]| geo::Coord { x, y }).collect();
+    c.push(c[0]);
+    geo::Polygon::new(geo::LineString(c), vec![])
+}
+
+/// Directions tried around the blob's walls (degrees), and the step between them.
+const PARTITION_SEARCH: f64 = 2.0;
+const PARTITION_STEP: f64 = 0.5;
 
 /// Area, short side and direction of the long side (radians) of the smallest rectangle around
 /// `rings` aligned to one of their edges.

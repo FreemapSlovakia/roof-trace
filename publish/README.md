@@ -14,15 +14,13 @@ voči ortofotomape.
 
 ## Súbory
 
-Územie je rozdelené na štvorce 20 × 20 km v S-JTSK (EPSG:8353). Adresár `<x>_<y>` je štvorec
-s juhozápadným rohom v `x`, `y` a obsahuje:
+Územie je rozdelené na štvorce 20 × 20 km v S-JTSK (EPSG:8353). Štvorec s juhozápadným rohom
+v `x`, `y` má dva súbory:
 
-- `new.osm` – budovy, ktoré v OSM ešte nie sú,
-- `overlap.osm` – budovy, ktoré sa prekrývajú s existujúcou budovou v OSM, na porovnanie,
-- vedľa adresára `<x>_<y>.geojson` – všetky obrysy štvorca v S-JTSK, aj s diagnostickými
-  atribútmi.
+- `<x>_<y>.osm` – všetky budovy štvorca, aj tie, ktoré už v OSM sú,
+- `<x>_<y>.geojson` – tie isté obrysy v S-JTSK, aj s diagnostickými atribútmi.
 
-`done.geojson` (WGS 84) ukazuje hotové štvorce; atribút `dir` je názov adresára. Ďalšie pribúdajú,
+`done.geojson` (WGS 84) ukazuje hotové štvorce; atribút `square` je názov ich súborov. Ďalšie pribúdajú,
 kým beží spracovanie celého Slovenska.
 
 Budova patrí do štvorca, v ktorom leží jej ťažisko, takže sa susedné štvorce neprekrývajú. Budovy

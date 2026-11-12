@@ -1,26 +1,21 @@
-//! Turns traced outlines into OSM files for review in JOSM: buildings OSM lacks go to `new.osm`,
-//! those overlapping an existing OSM building to `overlap.osm`. Neighbouring outlines share nodes.
+//! Turns traced outlines into an OSM file for review in JOSM. Neighbouring outlines share nodes.
 
 use std::{
     collections::HashMap,
     fs::File,
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::{BufReader, BufWriter, Write},
     path::PathBuf,
 };
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use geo::{Area, BooleanOps, BoundingRect, Coord, LineString, Polygon, Validation};
+use geo::{Coord, LineString, Polygon, Validation};
 use proj::Proj;
 use serde_json::Value;
 
 #[derive(Parser)]
 struct Args {
-    /// Existing OSM buildings as GeoJSON lines (`osmium export -f geojsonseq`), in WGS 84.
-    #[arg(long)]
-    osm: Option<PathBuf>,
-
-    /// Directory for `new.osm` and `overlap.osm`.
+    /// The OSM file to write.
     #[arg(long)]
     out: PathBuf,
 
@@ -33,8 +28,6 @@ struct Args {
 const SNAP: f64 = 0.4;
 /// Nodes closer than this (m) to the line through their neighbours add nothing to the outline.
 const STRAIGHT: f64 = 0.05;
-/// Share of either building's area that an overlap must reach for a traced building to be in OSM already.
-const SAME: f64 = 0.1;
 /// Keys written to OSM; the rest are the tracer's diagnostics.
 const KEYS: [&str; 5] = ["building", "height", "roof:shape", "roof:height", "roof:orientation"];
 /// The survey every tag and the geometry come from.
@@ -81,30 +74,9 @@ fn main() -> Result<()> {
     eprintln!("{} traced buildings", buildings.len());
 
     let to_wgs = Proj::new_known_crs("EPSG:8353", "EPSG:4326", None)?;
-    let existing = match &args.osm {
-        Some(path) => existing(path, &buildings)?,
-        None => Vec::new(),
-    };
-    eprintln!("{} OSM buildings around them", existing.len());
-    let index = Grid::new(existing.iter().map(|p| p.bounding_rect().unwrap()));
-    let (mut new, mut overlap) = (Vec::new(), Vec::new());
-    for b in buildings {
-        let p = polygon(&b.rings);
-        let r = p.bounding_rect().unwrap();
-        let area = p.unsigned_area();
-        let known = index.near(r).any(|i| {
-            let o = &existing[i];
-            let inter = p.intersection(o).unsigned_area();
-            inter > SAME * area || inter > SAME * o.unsigned_area()
-        });
-        if known { overlap.push(b) } else { new.push(b) }
-    }
-    std::fs::create_dir_all(&args.out)?;
-    for (name, set) in [("new.osm", new), ("overlap.osm", overlap)] {
-        let (nodes, ways) = share_nodes(set);
-        write(&args.out.join(name), &nodes, &ways, &to_wgs)?;
-        eprintln!("{name}: {} buildings, {} nodes", ways.len(), nodes.len());
-    }
+    let (nodes, ways) = share_nodes(buildings);
+    write(&args.out, &nodes, &ways, &to_wgs)?;
+    eprintln!("{}: {} buildings, {} nodes", args.out.display(), ways.len(), nodes.len());
     Ok(())
 }
 
@@ -115,53 +87,6 @@ fn polygon(rings: &[Vec<P>]) -> Polygon<f64> {
         LineString(c)
     };
     Polygon::new(ls(&rings[0]), rings[1..].iter().map(ls).collect())
-}
-
-/// The OSM buildings in `path` near any of `buildings`, in the tracer's CRS.
-fn existing(path: &PathBuf, buildings: &[Building]) -> Result<Vec<Polygon<f64>>> {
-    let to_jtsk = Proj::new_known_crs("EPSG:4326", "EPSG:8353", None)?;
-    let traced = Grid::new(buildings.iter().map(|b| polygon(&b.rings).bounding_rect().unwrap()));
-    let mut out = Vec::new();
-    for line in BufReader::new(File::open(path)?).lines() {
-        let line = line?;
-        let line = line.trim_start_matches('\u{1e}');
-        if line.is_empty() {
-            continue;
-        }
-        let f: Value = serde_json::from_str(line)?;
-        let g = &f["geometry"];
-        let polys: Vec<&Value> = match g["type"].as_str() {
-            Some("Polygon") => vec![&g["coordinates"]],
-            Some("MultiPolygon") => g["coordinates"].as_array().unwrap().iter().collect(),
-            _ => continue,
-        };
-        for p in polys {
-            let rings: Vec<Vec<P>> = p
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|r| {
-                    let mut r: Vec<P> = r
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .filter_map(|c| to_jtsk.convert((c[0].as_f64()?, c[1].as_f64()?)).ok().map(|(x, y)| [x, y]))
-                        .collect();
-                    r.pop();
-                    r
-                })
-                .filter(|r| r.len() >= 3)
-                .collect();
-            if rings.is_empty() {
-                continue;
-            }
-            let p = polygon(&rings);
-            if traced.near(p.bounding_rect().unwrap()).next().is_some() {
-                out.push(p);
-            }
-        }
-    }
-    Ok(out)
 }
 
 /// Rectangles bucketed by the cells they cover.

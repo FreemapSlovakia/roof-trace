@@ -1,7 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    f64::consts::FRAC_PI_2,
-};
+use std::{collections::BTreeMap, f64::consts::FRAC_PI_2};
 
 type P3 = crate::store::Pt;
 
@@ -23,7 +20,12 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
     let min_cells = (MIN_PLANE_AREA / (res * res)).round() as usize;
     let mut q = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
     for p in points {
-        q = [q[0].min(p[0]), q[1].min(p[1]), q[2].max(p[0]), q[3].max(p[1])];
+        q = [
+            q[0].min(p[0]),
+            q[1].min(p[1]),
+            q[2].max(p[0]),
+            q[3].max(p[1]),
+        ];
     }
     let (x0, y0) = (q[0] - res, q[1] - res);
     let w = ((q[2] - x0) / res) as usize + 2;
@@ -52,17 +54,24 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
         .collect();
     let nb = |k: usize| {
         let (i, j) = ((k % w) as isize, (k / w) as isize);
-        [(-1, 0), (1, 0), (0, -1), (0, 1)].into_iter().filter_map(move |(di, dj)| {
-            let (a, b) = (i + di, j + dj);
-            (a >= 0 && b >= 0 && (a as usize) < w && (b as usize) < ht).then(|| b as usize * w + a as usize)
-        })
+        [(-1, 0), (1, 0), (0, -1), (0, 1)]
+            .into_iter()
+            .filter_map(move |(di, dj)| {
+                let (a, b) = (i + di, j + dj);
+                (a >= 0 && b >= 0 && (a as usize) < w && (b as usize) < ht)
+                    .then(|| b as usize * w + a as usize)
+            })
     };
 
     // Empty cells between points get their neighbours' mean, so the surface has no pits.
     let mask: Vec<bool> = {
         let occ: Vec<bool> = z.iter().map(|v| !v.is_nan()).collect();
-        let grown: Vec<bool> = (0..z.len()).map(|k| occ[k] || nb(k).any(|n| occ[n])).collect();
-        (0..z.len()).map(|k| grown[k] && (nb(k).all(|n| grown[n]) || occ[k])).collect()
+        let grown: Vec<bool> = (0..z.len())
+            .map(|k| occ[k] || nb(k).any(|n| occ[n]))
+            .collect();
+        (0..z.len())
+            .map(|k| grown[k] && (nb(k).all(|n| grown[n]) || occ[k]))
+            .collect()
     };
     for _ in 0..4 {
         let prev = z.clone();
@@ -95,7 +104,8 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
 
     // Local plane of each cell from its full 3×3 neighbourhood: slopes a, b (per m) and fit RMS.
     let at = |i: isize, j: isize| {
-        (i >= 0 && j >= 0 && (i as usize) < w && (j as usize) < ht).then(|| j as usize * w + i as usize)
+        (i >= 0 && j >= 0 && (i as usize) < w && (j as usize) < ht)
+            .then(|| j as usize * w + i as usize)
     };
     let local: Vec<Option<(f64, f64, f64)>> = (0..z.len())
         .map(|k| {
@@ -122,7 +132,8 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
             let mut rss = 0.0;
             for dj in 0..3 {
                 for di in 0..3 {
-                    rss += (v[dj][di] - (c + a * (di as f64 - 1.0) + b * (dj as f64 - 1.0))).powi(2);
+                    rss +=
+                        (v[dj][di] - (c + a * (di as f64 - 1.0) + b * (dj as f64 - 1.0))).powi(2);
                 }
             }
             Some((a / res, b / res, (rss / 9.0).sqrt()))
@@ -133,7 +144,9 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
     // Roof planes grown from the flattest cells while the next cell stays on the plane.
     let mut label = vec![0usize; z.len()];
     let mut planes: Vec<Plane> = vec![Plane::default()];
-    let mut order: Vec<usize> = (0..z.len()).filter(|&k| local[k].is_some_and(|l| l.2 < SEED_RMS)).collect();
+    let mut order: Vec<usize> = (0..z.len())
+        .filter(|&k| local[k].is_some_and(|l| l.2 < SEED_RMS))
+        .collect();
     order.sort_by(|&a, &b| local[a].unwrap().2.total_cmp(&local[b].unwrap().2));
     for &s in &order {
         if label[s] != 0 {
@@ -142,7 +155,12 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
         let r = planes.len();
         let (a, b, _) = local[s].unwrap();
         let ps = pos(s);
-        let mut plane = Plane { a, b, c: z[s] - a * ps[0] - b * ps[1], ..Plane::default() };
+        let mut plane = Plane {
+            a,
+            b,
+            c: z[s] - a * ps[0] - b * ps[1],
+            ..Plane::default()
+        };
         let mut fit = Plane::default();
         // The seed's whole 3×3 neighbourhood is on the plane, so the face starts from all of it.
         let (si, sj) = ((s % w) as isize, (s / w) as isize);
@@ -184,14 +202,24 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
                 queue.push_back(n);
                 if fit.n >= next_refit {
                     if let Some(p) = fit.solve() {
-                        plane = Plane { a: p.0, b: p.1, c: p.2, ..Plane::default() };
+                        plane = Plane {
+                            a: p.0,
+                            b: p.1,
+                            c: p.2,
+                            ..Plane::default()
+                        };
                     }
                     next_refit *= 2;
                 }
             }
         }
         if let Some(p) = fit.solve() {
-            plane = Plane { a: p.0, b: p.1, c: p.2, ..Plane::default() };
+            plane = Plane {
+                a: p.0,
+                b: p.1,
+                c: p.2,
+                ..Plane::default()
+            };
         }
         plane.n = fit.n;
         planes.push(plane);
@@ -210,9 +238,15 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
                 continue;
             }
             let pk = pos(k);
-            if let Some(r) = nb(k).map(|n| label[n]).filter(|&r| r != 0).min_by(|&r, &s| {
-                (z[k] - planes[r].z(pk)).abs().total_cmp(&(z[k] - planes[s].z(pk)).abs())
-            }) {
+            if let Some(r) = nb(k)
+                .map(|n| label[n])
+                .filter(|&r| r != 0)
+                .min_by(|&r, &s| {
+                    (z[k] - planes[r].z(pk))
+                        .abs()
+                        .total_cmp(&(z[k] - planes[s].z(pk)).abs())
+                })
+            {
                 label[k] = r;
                 changed = true;
             }
@@ -263,7 +297,9 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
         for &k in pieces.iter().flatten() {
             piece[k] = 0;
         }
-        let big: Vec<usize> = (0..pieces.len()).filter(|&p| pieces[p].len() >= min_cells).collect();
+        let big: Vec<usize> = (0..pieces.len())
+            .filter(|&p| pieces[p].len() >= min_cells)
+            .collect();
         if big.len() < 2 {
             continue;
         }
@@ -290,7 +326,11 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
         for &k in cells {
             if owner[k] != 0 {
                 label[k] = owner[k];
-                let f = if owner[k] == r { 0 } else { owner[k] - first_new + 1 };
+                let f = if owner[k] == r {
+                    0
+                } else {
+                    owner[k] - first_new + 1
+                };
                 fits[f].add(pos(k), z[k]);
                 owner[k] = 0;
             }
@@ -298,23 +338,54 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
         for (f, fit) in fits.iter().enumerate() {
             let l = if f == 0 { r } else { first_new + f - 1 };
             if let Some((a, b, c)) = fit.solve() {
-                planes[l] = Plane { a, b, c, n: fit.n, ..Plane::default() };
+                planes[l] = Plane {
+                    a,
+                    b,
+                    c,
+                    n: fit.n,
+                    ..Plane::default()
+                };
             }
         }
     }
-    Faces { x0, y0, w, ht, z, label, planes, int }
+    Faces {
+        x0,
+        y0,
+        w,
+        ht,
+        z,
+        label,
+        planes,
+        int,
+    }
 }
 
 /// Splits the points of one building blob into houses by their roof faces: faces meeting at a ridge
 /// or hip are one roof; a valley, step or offset ridge between faces separates them. Parts smaller
 /// than `min_part` (m²) join the neighbour they share most boundary with.
-pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool) -> (Vec<Vec<P3>>, Vec<Wall>) {
-    let Faces { x0, y0, w, ht, z, mut label, planes, int } = faces(points, res);
+pub fn parts(
+    points: &[P3],
+    thetas: &[f64],
+    res: f64,
+    min_part: f64,
+    debug: bool,
+) -> (Vec<Vec<P3>>, Vec<Wall>) {
+    let Faces {
+        x0,
+        y0,
+        w,
+        ht,
+        z,
+        mut label,
+        planes,
+        int,
+    } = faces(points, res);
     let face = label.clone();
     let cell = |p: &P3| ((p[1] - y0) / res) as usize * w + ((p[0] - x0) / res) as usize;
     let nb = |k: usize| neighbours(k, w, ht);
     let at = |i: isize, j: isize| {
-        (i >= 0 && j >= 0 && (i as usize) < w && (j as usize) < ht).then(|| j as usize * w + i as usize)
+        (i >= 0 && j >= 0 && (i as usize) < w && (j as usize) < ht)
+            .then(|| j as usize * w + i as usize)
     };
     let pos = |k: usize| [((k % w) as f64 + 0.5) * res, ((k / w) as f64 + 0.5) * res];
     // Median intensity of each label's cells; labels of unlike roofing are not one roof.
@@ -333,7 +404,9 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
             .collect::<BTreeMap<usize, f64>>()
     };
     let unlike = |m: &BTreeMap<usize, f64>, a: usize, b: usize| {
-        m.get(&a).zip(m.get(&b)).is_some_and(|(x, y)| (x - y).abs() > INT_TOL)
+        m.get(&a)
+            .zip(m.get(&b))
+            .is_some_and(|(x, y)| (x - y).abs() > INT_TOL)
     };
     let face_roofing = roofing(&label);
 
@@ -355,7 +428,11 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
             let (pk, pn) = (pos(k), pos(n));
             let m = [(pk[0] + pn[0]) / 2.0, (pk[1] + pn[1]) / 2.0];
             let (pr, ps) = (&planes[r], &planes[s]);
-            let Meeting { continuous, ridge, flat } = meet(pr, ps, pk, pn, res);
+            let Meeting {
+                continuous,
+                ridge,
+                flat,
+            } = meet(pr, ps, pk, pn, res);
             // Pieces of one face that grew apart.
             let coplanar = (pr.a - ps.a).abs() + (pr.b - ps.b).abs() < SLOPE_TOL;
             edge_pts.entry((r.min(s), r.max(s))).or_default().push(m);
@@ -373,14 +450,23 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
         for (r, p) in planes.iter().enumerate().skip(1) {
             let v: Vec<[f64; 2]> = (0..z.len()).filter(|&k| label[k] == r).map(pos).collect();
             let n = v.len() as f64;
-            let c = v.iter().fold([x0, y0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
+            let c = v
+                .iter()
+                .fold([x0, y0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
             eprintln!(
                 "face {r}: slope ({:.2}, {:.2}) cells {} at {:.1} {:.1}, intensity {:?}",
-                p.a, p.b, p.n, c[0], c[1], face_roofing.get(&r)
+                p.a,
+                p.b,
+                p.n,
+                c[0],
+                c[1],
+                face_roofing.get(&r)
             );
         }
         for ((r, s), (same, total, coplanar, _)) in &votes {
-            eprintln!("faces {r}-{s}: {same} of {total} boundary cells look like one roof, {coplanar} coplanar");
+            eprintln!(
+                "faces {r}-{s}: {same} of {total} boundary cells look like one roof, {coplanar} coplanar"
+            );
         }
     }
     // Outline length of each face, in cell edges.
@@ -410,8 +496,13 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
         // Neighbours' coplanar faces touch at a corner or a neck; pieces of one face share much of
         // their outline.
         let outline = perim[&r].min(perim[&s]) as f64;
-        let pieces = total >= MIN_COPLANAR_EDGE && (total as f64 >= COPLANAR_SHARE * outline || coplanar >= COPLANAR_RUN);
-        let same = if pieces && !unlike(&face_roofing, r, s) { same + coplanar } else { same };
+        let pieces = total >= MIN_COPLANAR_EDGE
+            && (total as f64 >= COPLANAR_SHARE * outline || coplanar >= COPLANAR_RUN);
+        let same = if pieces && !unlike(&face_roofing, r, s) {
+            same + coplanar
+        } else {
+            same
+        };
         // A wing meets the main roof in a valley running diagonally across the walls; neighbouring
         // houses meet in one running along them.
         let wing = cont as f64 > SAME_ROOF_SHARE * total as f64
@@ -421,15 +512,25 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
         if wing || (same >= MIN_JOIN_EDGE && same as f64 > SAME_ROOF_SHARE * total as f64) {
             if debug {
                 let c = |f: usize| {
-                    let v: Vec<[f64; 2]> = (0..z.len()).filter(|&k| label[k] == f).map(pos).collect();
+                    let v: Vec<[f64; 2]> =
+                        (0..z.len()).filter(|&k| label[k] == f).map(pos).collect();
                     let n = v.len() as f64;
-                    v.iter().fold([x0, y0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n])
+                    v.iter()
+                        .fold([x0, y0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n])
                 };
                 let (cr, cs) = (c(r), c(s));
-                eprintln!("join {r} ({:.1}, {:.1}) + {s} ({:.1}, {:.1}): {same}/{total}{}", cr[0], cr[1], cs[0], cs[1], if wing { ", wing" } else { "" });
+                eprintln!(
+                    "join {r} ({:.1}, {:.1}) + {s} ({:.1}, {:.1}): {same}/{total}{}",
+                    cr[0],
+                    cr[1],
+                    cs[0],
+                    cs[1],
+                    if wing { ", wing" } else { "" }
+                );
             }
             // Only a ridge between two roofs is a bridge to judge; pieces of one face are one roof.
-            let flat_pair = (planes[r].a - planes[s].a).abs() + (planes[r].b - planes[s].b).abs() < PIECE_TOL;
+            let flat_pair =
+                (planes[r].a - planes[s].a).abs() + (planes[r].b - planes[s].b).abs() < PIECE_TOL;
             joins.push((r, s, wing || flat_pair));
         }
         support.insert((r, s), if wing { total } else { same.min(total) });
@@ -444,7 +545,9 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
                 root[fr] = fs;
             }
         }
-        (0..planes.len()).map(|f| find(&mut root, f)).collect::<Vec<_>>()
+        (0..planes.len())
+            .map(|f| find(&mut root, f))
+            .collect::<Vec<_>>()
     };
     let mut unjoined = Vec::new();
     loop {
@@ -465,7 +568,10 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
             let share = same as f64 / total as f64;
             // Cells, eaves and roof top of each side; the smaller must top out at the other's eaves.
             let side = |grp: usize| {
-                let mut h: Vec<f64> = (0..z.len()).filter(|&k| label[k] != 0 && g[label[k]] == grp && !z[k].is_nan()).map(|k| z[k]).collect();
+                let mut h: Vec<f64> = (0..z.len())
+                    .filter(|&k| label[k] != 0 && g[label[k]] == grp && !z[k].is_nan())
+                    .map(|k| z[k])
+                    .collect();
                 h.sort_by(f64::total_cmp);
                 let at = |q: usize| h.get(h.len() * q / 100).copied().unwrap_or(f64::NAN);
                 (h.len(), at(5), at(95))
@@ -473,7 +579,10 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
             let (a, b) = (side(ga), side(gb));
             let (small, large) = if a.0 < b.0 { (a, b) } else { (b, a) };
             if debug {
-                eprintln!("bridge {} + {}: share {share:.2}, top {:.1} against eaves {:.1}", joins[i].0, joins[i].1, small.2, large.1);
+                eprintln!(
+                    "bridge {} + {}: share {share:.2}, top {:.1} against eaves {:.1}",
+                    joins[i].0, joins[i].1, small.2, large.1
+                );
             }
             // A lower end topped well under the house's ridge is judged more readily, where a ridge
             // joins them; one slope running on into it is one roof.
@@ -490,9 +599,14 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
                 weakest = Some((share, i, same, total));
             }
         }
-        let Some((share, i, same, total)) = weakest else { break };
+        let Some((share, i, same, total)) = weakest else {
+            break;
+        };
         if debug {
-            eprintln!("unjoin {} + {}: {same} of {total} boundary cells between their roofs look like one or are continuous ({share:.2})", joins[i].0, joins[i].1);
+            eprintln!(
+                "unjoin {} + {}: {same} of {total} boundary cells between their roofs look like one or are continuous ({share:.2})",
+                joins[i].0, joins[i].1
+            );
         }
         unjoined.extend([joins[i].0, joins[i].1]);
         joins.remove(i);
@@ -540,9 +654,12 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
             break;
         }
         let area: BTreeMap<usize, usize> = cells.iter().map(|(&l, c)| (l, c.len())).collect();
-        let small_or_thin = |l: usize| (area[&l] as f64) * cell_area < min_part || width(&cells[&l]) < MIN_WIDTH;
-        let Some((&small, _)) =
-            area.iter().filter(|&(&l, _)| !kept.contains(&l) && small_or_thin(l)).min_by_key(|&(_, &a)| a)
+        let small_or_thin =
+            |l: usize| (area[&l] as f64) * cell_area < min_part || width(&cells[&l]) < MIN_WIDTH;
+        let Some((&small, _)) = area
+            .iter()
+            .filter(|&(&l, _)| !kept.contains(&l) && small_or_thin(l))
+            .min_by_key(|&(_, &a)| a)
         else {
             break;
         };
@@ -559,14 +676,21 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
                 }
             }
         }
-        let Some((&into, _)) = shared.iter().max_by_key(|&(_, &(c, _))| c) else { break };
+        let Some((&into, _)) = shared.iter().max_by_key(|&(_, &(c, _))| c) else {
+            break;
+        };
         let total: usize = shared.values().map(|&(c, _)| c).sum();
-        let shed = shared.values().any(|&(c, rise)| c as f64 >= SHED_EDGE * total as f64 && rise / c as f64 > SHED_STEP);
+        let shed = shared
+            .values()
+            .any(|&(c, rise)| c as f64 >= SHED_EDGE * total as f64 && rise / c as f64 > SHED_STEP);
         // A roof of its own, stepped from the one it touches, is a building however small.
         let own = unjoined.contains(&small) && width(&cells[&small]) >= MIN_WIDTH;
         // A flat roof against a pitched one, well under its top: a garage or annex at the eaves.
         let top = |l: usize| {
-            let mut h: Vec<f64> = (0..z.len()).filter(|&k| label[k] == l && !z[k].is_nan()).map(|k| z[k]).collect();
+            let mut h: Vec<f64> = (0..z.len())
+                .filter(|&k| label[k] == l && !z[k].is_nan())
+                .map(|k| z[k])
+                .collect();
             h.sort_by(f64::total_cmp);
             h.get(h.len() * 95 / 100).copied().unwrap_or(f64::NAN)
         };
@@ -576,17 +700,28 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
             && top(into) - top(small) > OBLIQUE_STEP
             && area[&small] as f64 * cell_area >= MIN_GARAGE;
         if debug && pitch(small) < ANNEX_SLOPE {
-            eprintln!("flat {small}: top {:.1}, {into} pitched {:.2}, top {:.1}", top(small), pitch(into), top(into));
+            eprintln!(
+                "flat {small}: top {:.1}, {into} pitched {:.2}, top {:.1}",
+                top(small),
+                pitch(into),
+                top(into)
+            );
         }
         if (shed || own || flat) && area[&small] as f64 * cell_area >= MIN_SHED {
             if debug {
-                eprintln!("small {small} ({} cells), neighbours {shared:?}: a shed or a roof of its own", area[&small]);
+                eprintln!(
+                    "small {small} ({} cells), neighbours {shared:?}: a shed or a roof of its own",
+                    area[&small]
+                );
             }
             kept.insert(small);
             continue;
         }
         if debug {
-            eprintln!("small or thin {small} ({} cells) into {into}, neighbours {shared:?}", area[&small]);
+            eprintln!(
+                "small or thin {small} ({} cells) into {into}, neighbours {shared:?}",
+                area[&small]
+            );
         }
         for l in label.iter_mut() {
             if *l == small {
@@ -604,9 +739,17 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
             }
             for n in nb(k) {
                 if label[n] != 0 && label[n] > label[k] {
-                    let c = |k: usize| [x0 + ((k % w) as f64 + 0.5) * res, y0 + ((k / w) as f64 + 0.5) * res];
+                    let c = |k: usize| {
+                        [
+                            x0 + ((k % w) as f64 + 0.5) * res,
+                            y0 + ((k / w) as f64 + 0.5) * res,
+                        ]
+                    };
                     let (a, b) = (c(k), c(n));
-                    pairs.entry((label[k], label[n])).or_default().push([(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0]);
+                    pairs
+                        .entry((label[k], label[n]))
+                        .or_default()
+                        .push([(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0]);
                 }
             }
         }
@@ -631,7 +774,11 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
         let pct = |l: usize, q: f64| {
             let mut v = zs.get(&l).cloned().unwrap_or_default();
             v.sort_by(f64::total_cmp);
-            if v.is_empty() { f64::NAN } else { v[((v.len() - 1) as f64 * q) as usize] }
+            if v.is_empty() {
+                f64::NAN
+            } else {
+                v[((v.len() - 1) as f64 * q) as usize]
+            }
         };
         let below = |a: usize, b: usize| pct(a, 0.95) < pct(b, 0.05) + ANNEX_RISE;
         let bounds = boundaries(&label);
@@ -648,7 +795,11 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
                 for n in nb(k).filter(|&n| label[n] == b) {
                     let (pr, ps) = (&planes[face[k]], &planes[face[n]]);
                     all += 1;
-                    if face[k] != 0 && face[n] != 0 && pr.a.hypot(pr.b) > ANNEX_SLOPE && (pr.a - ps.a).abs() + (pr.b - ps.b).abs() < SLOPE_TOL {
+                    if face[k] != 0
+                        && face[n] != 0
+                        && pr.a.hypot(pr.b) > ANNEX_SLOPE
+                        && (pr.a - ps.a).abs() + (pr.b - ps.b).abs() < SLOPE_TOL
+                    {
                         same += 1;
                     }
                 }
@@ -663,10 +814,18 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
                     if neighbours[&a] > 1 || unjoined.contains(&a) || unlike(&part_roofing, a, b) {
                         return false;
                     }
-                    let Some((t0, t1, lo, hi)) = side(&label, a, b) else { return false };
+                    let Some((t0, t1, lo, hi)) = side(&label, a, b) else {
+                        return false;
+                    };
                     let flush = t1 - t0 >= FLUSH_SHARE * (hi - lo);
                     if debug {
-                        eprintln!("{a} against {b}: edge {:.1} to {:.1} of side {:.1} to {:.1}", t0 - lo, t1 - lo, 0.0, hi - lo);
+                        eprintln!(
+                            "{a} against {b}: edge {:.1} to {:.1} of side {:.1} to {:.1}",
+                            t0 - lo,
+                            t1 - lo,
+                            0.0,
+                            hi - lo
+                        );
                     }
                     area[&a] < WING_SHARE * area[&b]
                         && !below(a, b)
@@ -689,7 +848,12 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
         if debug {
             eprintln!(
                 "oblique split or wing: {lp} (roof {:.1} to {:.1}, intensity {:?}) + {lq} ({:.1} to {:.1}, {:?})",
-                pct(lp, 0.05), pct(lp, 0.95), part_roofing.get(&lp), pct(lq, 0.05), pct(lq, 0.95), part_roofing.get(&lq)
+                pct(lp, 0.05),
+                pct(lp, 0.95),
+                part_roofing.get(&lp),
+                pct(lq, 0.05),
+                pct(lq, 0.95),
+                part_roofing.get(&lq)
             );
         }
         for l in label.iter_mut() {
@@ -706,7 +870,10 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
     for ((lp, lq), b) in boundaries(&label) {
         let Some(mut wall) = Wall::fit(&b) else {
             if debug {
-                eprintln!("boundary {lp}-{lq}: {} cells, too short for a wall", b.len());
+                eprintln!(
+                    "boundary {lp}-{lq}: {} cells, too short for a wall",
+                    b.len()
+                );
             }
             continue;
         };
@@ -714,30 +881,61 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
         let (axis, b) = match wall.axis(thetas) {
             Some(axis) => (axis, b),
             None if stepped(&b, thetas) => {
-                let Some((axis, run)) = runs(&b, thetas).into_iter().next() else { continue };
+                let Some((axis, run)) = runs(&b, thetas).into_iter().next() else {
+                    continue;
+                };
                 if debug {
-                    eprintln!("boundary {lp}-{lq}: stepped, longest run {} of {} cells at {:.0}°", run.len(), b.len(), axis.to_degrees());
+                    eprintln!(
+                        "boundary {lp}-{lq}: stepped, longest run {} of {} cells at {:.0}°",
+                        run.len(),
+                        b.len(),
+                        axis.to_degrees()
+                    );
                 }
                 // Its position from the run, its extent from the whole boundary.
                 let n = run.len() as f64;
-                wall.p = run.iter().fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
+                wall.p = run
+                    .iter()
+                    .fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
                 (axis, b)
             }
             None => {
                 if debug {
-                    eprintln!("boundary {lp}-{lq}: not stepped: runs {:?}", runs(&b, thetas).iter().map(|(a, r)| (a.to_degrees().round(), r.len())).collect::<Vec<_>>());
-                    eprintln!("boundary {lp}-{lq}: at {:.0}° off the axes {thetas:?}", wall.dir[1].atan2(wall.dir[0]).to_degrees());
+                    eprintln!(
+                        "boundary {lp}-{lq}: not stepped: runs {:?}",
+                        runs(&b, thetas)
+                            .iter()
+                            .map(|(a, r)| (a.to_degrees().round(), r.len()))
+                            .collect::<Vec<_>>()
+                    );
+                    eprintln!(
+                        "boundary {lp}-{lq}: at {:.0}° off the axes {thetas:?}",
+                        wall.dir[1].atan2(wall.dir[0]).to_degrees()
+                    );
                 }
                 continue;
             }
         };
         wall.set_dir(axis, &b);
         // Which side is `lp`: the mean offset of its points near the wall.
-        let near = |p: &P3| wall.offset(p).abs() < WALL_REACH && wall.along(p) > wall.t0 - 1.0 && wall.along(p) < wall.t1 + 1.0;
-        let side_p: f64 = points.iter().zip(&point_label).filter(|(p, l)| **l == lp && near(p)).map(|(p, _)| wall.offset(p)).sum();
+        let near = |p: &P3| {
+            wall.offset(p).abs() < WALL_REACH
+                && wall.along(p) > wall.t0 - 1.0
+                && wall.along(p) < wall.t1 + 1.0
+        };
+        let side_p: f64 = points
+            .iter()
+            .zip(&point_label)
+            .filter(|(p, l)| **l == lp && near(p))
+            .map(|(p, _)| wall.offset(p))
+            .sum();
         for (p, l) in points.iter().zip(point_label.iter_mut()) {
             if (*l == lp || *l == lq) && near(p) {
-                *l = if (wall.offset(p) > 0.0) == (side_p > 0.0) { lp } else { lq };
+                *l = if (wall.offset(p) > 0.0) == (side_p > 0.0) {
+                    lp
+                } else {
+                    lq
+                };
             }
         }
         walls.push(wall);
@@ -767,7 +965,9 @@ impl Wall {
     /// Principal direction of the boundary points; `None` for boundaries too short to be a wall.
     fn fit(b: &[[f64; 2]]) -> Option<Wall> {
         let n = b.len() as f64;
-        let c = b.iter().fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
+        let c = b
+            .iter()
+            .fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
         let (mut sxx, mut sxy, mut syy) = (0.0, 0.0, 0.0);
         for p in b {
             let (dx, dy) = (p[0] - c[0], p[1] - c[1]);
@@ -776,7 +976,12 @@ impl Wall {
             syy += dy * dy;
         }
         let ang = 0.5 * (2.0 * sxy).atan2(sxx - syy);
-        let mut wall = Wall { p: c, dir: [ang.cos(), ang.sin()], t0: f64::MAX, t1: f64::MIN };
+        let mut wall = Wall {
+            p: c,
+            dir: [ang.cos(), ang.sin()],
+            t0: f64::MAX,
+            t1: f64::MIN,
+        };
         for p in b {
             let t = wall.along(p);
             wall.t0 = wall.t0.min(t);
@@ -889,7 +1094,11 @@ impl Plane {
 
     fn add(&mut self, p: [f64; 2], z: f64) {
         let (x, y) = (p[0], p[1]);
-        for (s, v) in self.s.iter_mut().zip([x, y, z, x * x, x * y, y * y, x * z, y * z, 1.0]) {
+        for (s, v) in self
+            .s
+            .iter_mut()
+            .zip([x, y, z, x * x, x * y, y * y, x * z, y * z, 1.0])
+        {
             *s += v;
         }
         self.n += 1;
@@ -901,7 +1110,8 @@ impl Plane {
         let m = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n]];
         let r = [sxz, syz, sz];
         let det = |m: [[f64; 3]; 3]| {
-            m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+            m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+                - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
                 + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
         };
         let d = det(m);
@@ -947,7 +1157,9 @@ const MIN_WIDTH: f64 = 3.0;
 /// Extent of cell centres across their principal axis.
 fn width(c: &[[f64; 2]]) -> f64 {
     let n = c.len() as f64;
-    let m = c.iter().fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
+    let m = c
+        .iter()
+        .fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
     let (mut sxx, mut sxy, mut syy) = (0.0, 0.0, 0.0);
     for p in c {
         let (dx, dy) = (p[0] - m[0], p[1] - m[1]);
@@ -966,9 +1178,13 @@ fn width(c: &[[f64; 2]]) -> f64 {
 
 /// Whether a boundary runs at 45° ± [`DIAGONAL_TOL`] to the building's main axes.
 fn diagonal(b: &[[f64; 2]], thetas: &[f64]) -> bool {
-    let Some(t) = thetas.first() else { return false };
+    let Some(t) = thetas.first() else {
+        return false;
+    };
     let n = b.len() as f64;
-    let c = b.iter().fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
+    let c = b
+        .iter()
+        .fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
     let (mut sxx, mut sxy, mut syy) = (0.0, 0.0, 0.0);
     for p in b {
         let (dx, dy) = (p[0] - c[0], p[1] - c[1]);
@@ -991,19 +1207,33 @@ fn stepped(b: &[[f64; 2]], thetas: &[f64]) -> bool {
 /// The two straight runs along the walls that take most of the boundary `b`, largest first: each
 /// one's direction (radians) and points.
 fn runs(b: &[[f64; 2]], thetas: &[f64]) -> Vec<(f64, Vec<[f64; 2]>)> {
-    let Some(&t) = thetas.first() else { return Vec::new() };
+    let Some(&t) = thetas.first() else {
+        return Vec::new();
+    };
     let (sin, cos) = t.sin_cos();
-    let mut left: Vec<([f64; 2], [f64; 2])> = b.iter().map(|p| ([p[0] * cos + p[1] * sin, -p[0] * sin + p[1] * cos], *p)).collect();
+    let mut left: Vec<([f64; 2], [f64; 2])> = b
+        .iter()
+        .map(|p| ([p[0] * cos + p[1] * sin, -p[0] * sin + p[1] * cos], *p))
+        .collect();
     let mut out = Vec::new();
     for _ in 0..2 {
         // The line across either axis that takes most points.
         let best = (0..2)
             .flat_map(|ax| left.iter().map(move |(q, _)| (ax, q[ax])))
-            .max_by_key(|&(ax, v)| left.iter().filter(|(q, _)| (q[ax] - v).abs() < STEP_TOL).count());
+            .max_by_key(|&(ax, v)| {
+                left.iter()
+                    .filter(|(q, _)| (q[ax] - v).abs() < STEP_TOL)
+                    .count()
+            });
         let Some((ax, v)) = best else { break };
-        let (on, off): (Vec<_>, Vec<_>) = left.into_iter().partition(|(q, _)| (q[ax] - v).abs() < STEP_TOL);
+        let (on, off): (Vec<_>, Vec<_>) = left
+            .into_iter()
+            .partition(|(q, _)| (q[ax] - v).abs() < STEP_TOL);
         // Points at one place across the first axis lie on a line along the second.
-        out.push((if ax == 0 { t + FRAC_PI_2 } else { t }, on.into_iter().map(|(_, p)| p).collect()));
+        out.push((
+            if ax == 0 { t + FRAC_PI_2 } else { t },
+            on.into_iter().map(|(_, p)| p).collect(),
+        ));
         left = off;
     }
     out
@@ -1017,14 +1247,16 @@ const STEP_SHARE: f64 = 0.8;
 /// How far from 45° to the walls a valley may run and still join a wing (degrees).
 const DIAGONAL_TOL: f64 = 15.0;
 
-
 /// The 4-neighbours of cell `k` in a `w` × `ht` grid.
 pub(crate) fn neighbours(k: usize, w: usize, ht: usize) -> impl Iterator<Item = usize> {
     let (i, j) = ((k % w) as isize, (k / w) as isize);
-    [(-1, 0), (1, 0), (0, -1), (0, 1)].into_iter().filter_map(move |(di, dj)| {
-        let (a, b) = (i + di, j + dj);
-        (a >= 0 && b >= 0 && (a as usize) < w && (b as usize) < ht).then(|| b as usize * w + a as usize)
-    })
+    [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        .into_iter()
+        .filter_map(move |(di, dj)| {
+            let (a, b) = (i + di, j + dj);
+            (a >= 0 && b >= 0 && (a as usize) < w && (b as usize) < ht)
+                .then(|| b as usize * w + a as usize)
+        })
 }
 
 /// How two faces meet across the boundary between neighbouring cells `pk` (face `pr`) and `pn`.

@@ -57,12 +57,22 @@ pub fn roof(points: &[P3], debug: bool) -> Roof {
     let pct = |q: f64| z[((z.len() - 1) as f64 * q) as usize];
     let (top, eave) = (pct(0.99), pct(0.03));
     let (shape, across) = shape(points, debug).map_or((None, false), |(s, a)| (Some(s), a));
-    Roof { shape, across, top, eave }
+    Roof {
+        shape,
+        across,
+        top,
+        eave,
+    }
 }
 
 fn shape(points: &[P3], debug: bool) -> Option<(&'static str, bool)> {
     let f = split::faces(points, RES);
-    let pos = |k: usize| [((k % f.w) as f64 + 0.5) * RES, ((k / f.w) as f64 + 0.5) * RES];
+    let pos = |k: usize| {
+        [
+            ((k % f.w) as f64 + 0.5) * RES,
+            ((k / f.w) as f64 + 0.5) * RES,
+        ]
+    };
     let mut cells: BTreeMap<usize, usize> = BTreeMap::new();
     for &l in f.label.iter().filter(|&&l| l != 0) {
         *cells.entry(l).or_default() += 1;
@@ -72,8 +82,10 @@ fn shape(points: &[P3], debug: bool) -> Option<(&'static str, bool)> {
         return None;
     }
     // Where the faces leave much of the roof out, as under a tree, its shape is unknown.
-    let seen: std::collections::BTreeSet<(i64, i64)> =
-        points.iter().map(|p| ((p[0] / RES).floor() as i64, (p[1] / RES).floor() as i64)).collect();
+    let seen: std::collections::BTreeSet<(i64, i64)> = points
+        .iter()
+        .map(|p| ((p[0] / RES).floor() as i64, (p[1] / RES).floor() as i64))
+        .collect();
     if (total as f64) < MIN_COVER * seen.len() as f64 {
         return None;
     }
@@ -84,7 +96,11 @@ fn shape(points: &[P3], debug: bool) -> Option<(&'static str, bool)> {
         let d = (a - b).rem_euclid(360.0);
         d.min(360.0 - d)
     };
-    let flat: usize = cells.iter().filter(|&(&l, _)| slope(l) < FLAT_SLOPE).map(|(_, &n)| n).sum();
+    let flat: usize = cells
+        .iter()
+        .filter(|&(&l, _)| slope(l) < FLAT_SLOPE)
+        .map(|(_, &n)| n)
+        .sum();
     if flat as f64 >= FLAT_ROOF * total as f64 {
         return Some(("flat", false));
     }
@@ -93,13 +109,20 @@ fn shape(points: &[P3], debug: bool) -> Option<(&'static str, bool)> {
     }
 
     // A roof slope often comes as several faces; those looking the same way are one slope.
-    let mut faces: Vec<usize> = cells.keys().copied().filter(|&l| slope(l) >= FLAT_SLOPE).collect();
+    let mut faces: Vec<usize> = cells
+        .keys()
+        .copied()
+        .filter(|&l| slope(l) >= FLAT_SLOPE)
+        .collect();
     faces.sort_by_key(|l| std::cmp::Reverse(cells[l]));
     let sloped: usize = faces.iter().map(|l| cells[l]).sum();
     // Per slope: its faces, cells, and aspect of its largest face.
     let mut slopes: Vec<(Vec<usize>, usize, f64)> = Vec::new();
     for &l in &faces {
-        match slopes.iter_mut().find(|s| apart(s.2, aspect(l)) < SAME_ASPECT) {
+        match slopes
+            .iter_mut()
+            .find(|s| apart(s.2, aspect(l)) < SAME_ASPECT)
+        {
             Some(s) => {
                 s.0.push(l);
                 s.1 += cells[&l];
@@ -107,36 +130,61 @@ fn shape(points: &[P3], debug: bool) -> Option<(&'static str, bool)> {
             None => slopes.push((vec![l], cells[&l], aspect(l))),
         }
     }
-    let (main, minor): (Vec<_>, Vec<_>) = slopes.into_iter().partition(|s| s.1 as f64 >= MIN_SLOPE_SHARE * sloped as f64);
+    let (main, minor): (Vec<_>, Vec<_>) = slopes
+        .into_iter()
+        .partition(|s| s.1 as f64 >= MIN_SLOPE_SHARE * sloped as f64);
     let minor_cells: usize = minor.iter().map(|s| s.1).sum();
     let slope_of = |l: usize| main.iter().position(|s| s.0.contains(&l));
 
     // Between different slopes, a simple roof has ridges and hips only; valleys mean wings.
     let (mut convex, mut edges) = (0, 0);
     for k in 0..f.label.len() {
-        let Some(sr) = slope_of(f.label[k]) else { continue };
+        let Some(sr) = slope_of(f.label[k]) else {
+            continue;
+        };
         for n in split::neighbours(k, f.w, f.ht) {
-            let Some(sn) = slope_of(f.label[n]) else { continue };
+            let Some(sn) = slope_of(f.label[n]) else {
+                continue;
+            };
             if sn <= sr {
                 continue;
             }
-            let m = split::meet(&f.planes[f.label[k]], &f.planes[f.label[n]], pos(k), pos(n), RES);
+            let m = split::meet(
+                &f.planes[f.label[k]],
+                &f.planes[f.label[n]],
+                pos(k),
+                pos(n),
+                RES,
+            );
             convex += m.ridge as usize;
             edges += 1;
         }
     }
     // Faces of one slope at clearly different pitches: a mansard or gambrel roof.
     let broken = main.iter().any(|s| {
-        let big: Vec<f64> = s.0.iter().filter(|l| cells[l] as f64 >= MIN_SLOPE_SHARE * sloped as f64 / 2.0).map(|&l| slope(l)).collect();
-        big.iter().any(|a| big.iter().any(|b| (a - b).abs() > PITCH_TOL))
+        let big: Vec<f64> =
+            s.0.iter()
+                .filter(|l| cells[l] as f64 >= MIN_SLOPE_SHARE * sloped as f64 / 2.0)
+                .map(|&l| slope(l))
+                .collect();
+        big.iter()
+            .any(|a| big.iter().any(|b| (a - b).abs() > PITCH_TOL))
     });
     if debug {
         for s in &main {
-            eprintln!("roof slope: aspect {:.0}, {} of {sloped} cells, faces {:?}", s.2, s.1, s.0);
+            eprintln!(
+                "roof slope: aspect {:.0}, {} of {sloped} cells, faces {:?}",
+                s.2, s.1, s.0
+            );
         }
-        eprintln!("roof: {minor_cells} cells in minor slopes, {convex} of {edges} edges convex, broken pitch {broken}");
+        eprintln!(
+            "roof: {minor_cells} cells in minor slopes, {convex} of {edges} edges convex, broken pitch {broken}"
+        );
     }
-    if minor_cells as f64 > MAX_MINOR * sloped as f64 || broken || (edges > 0 && (convex as f64) < CONVEX_SHARE * edges as f64) {
+    if minor_cells as f64 > MAX_MINOR * sloped as f64
+        || broken
+        || (edges > 0 && (convex as f64) < CONVEX_SHARE * edges as f64)
+    {
         return None;
     }
 
@@ -148,12 +196,21 @@ fn shape(points: &[P3], debug: bool) -> Option<(&'static str, bool)> {
         2 if apart(main[0].2, main[1].2) >= OPPOSITE => Some(("gabled", across)),
         4 => {
             // Two pairs of opposite slopes at right angles: the larger pair carries the ridge.
-            let (pair, ends): (Vec<_>, Vec<_>) = main.iter().partition(|s| apart(s.2, big.2) >= OPPOSITE || s.2 == big.2);
-            if pair.len() != 2 || apart(ends[0].2, ends[1].2) < OPPOSITE || (apart(pair[0].2, ends[0].2) - 90.0).abs() > SQUARE_TOL {
+            let (pair, ends): (Vec<_>, Vec<_>) = main
+                .iter()
+                .partition(|s| apart(s.2, big.2) >= OPPOSITE || s.2 == big.2);
+            if pair.len() != 2
+                || apart(ends[0].2, ends[1].2) < OPPOSITE
+                || (apart(pair[0].2, ends[0].2) - 90.0).abs() > SQUARE_TOL
+            {
                 return None;
             }
             let share = (ends[0].1 + ends[1].1) as f64 / sloped as f64;
-            Some(if share >= PYRAMID_SHARE { ("pyramidal", false) } else { ("hipped", across) })
+            Some(if share >= PYRAMID_SHARE {
+                ("pyramidal", false)
+            } else {
+                ("hipped", across)
+            })
         }
         _ => None,
     }
@@ -162,7 +219,9 @@ fn shape(points: &[P3], debug: bool) -> Option<(&'static str, bool)> {
 /// Whether a ridge in direction `ridge` (degrees) runs across an elongated footprint.
 fn across(points: &[P3], ridge: f64) -> bool {
     let n = points.len() as f64;
-    let c = points.iter().fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
+    let c = points
+        .iter()
+        .fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
     let (mut sxx, mut sxy, mut syy) = (0.0, 0.0, 0.0);
     for p in points {
         let (dx, dy) = (p[0] - c[0], p[1] - c[1]);
@@ -186,11 +245,17 @@ fn across(points: &[P3], ridge: f64) -> bool {
 fn top_at_edge(points: &[P3], aspect: f64) -> bool {
     let (s, c) = aspect.to_radians().sin_cos();
     let u = |p: &P3| p[0] * c + p[1] * s;
-    let (lo, hi) = points.iter().fold((f64::MAX, f64::MIN), |(lo, hi), p| (lo.min(u(p)), hi.max(u(p))));
+    let (lo, hi) = points.iter().fold((f64::MAX, f64::MIN), |(lo, hi), p| {
+        (lo.min(u(p)), hi.max(u(p)))
+    });
     let mut z: Vec<f64> = points.iter().map(|p| p[2]).collect();
     z.sort_by(f64::total_cmp);
     let top = z[(z.len() - 1) * 99 / 100];
-    let ridge: Vec<f64> = points.iter().filter(|p| p[2] >= top - TOP_BAND).map(u).collect();
+    let ridge: Vec<f64> = points
+        .iter()
+        .filter(|p| p[2] >= top - TOP_BAND)
+        .map(u)
+        .collect();
     let mean = ridge.iter().sum::<f64>() / ridge.len() as f64;
     hi > lo && (mean - lo) / (hi - lo) < TOP_EDGE
 }

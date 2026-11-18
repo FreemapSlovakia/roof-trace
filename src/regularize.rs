@@ -58,12 +58,19 @@ pub fn ring(r: &[P], tol: f64, snap: f64, merge: f64, debug: bool) -> Option<Vec
                 })
                 .min_by(|x, y| x.3.abs().total_cmp(&y.3.abs()));
             let (ang, axis) = match best {
-                Some((t, theta, k, d)) if d.abs() < snap => {
-                    (theta + k * FRAC_PI_2, Some(t as u8 * 2 + k.rem_euclid(2.0) as u8))
-                }
+                Some((t, theta, k, d)) if d.abs() < snap => (
+                    theta + k * FRAC_PI_2,
+                    Some(t as u8 * 2 + k.rem_euclid(2.0) as u8),
+                ),
                 _ => (ang, None),
             };
-            Line { p: mid(a, b), dir: [ang.cos(), ang.sin()], len, axis, end: b }
+            Line {
+                p: mid(a, b),
+                dir: [ang.cos(), ang.sin()],
+                len,
+                axis,
+                end: b,
+            }
         })
         .collect();
 
@@ -91,7 +98,9 @@ pub fn ring(r: &[P], tol: f64, snap: f64, merge: f64, debug: bool) -> Option<Vec
         if m < 4 {
             return None;
         }
-        let parallel = |a: &Line, b: &Line| a.axis.is_some() && a.axis == b.axis && offset(a, b.p).abs() < merge;
+        let parallel = |a: &Line, b: &Line| {
+            a.axis.is_some() && a.axis == b.axis && offset(a, b.p).abs() < merge
+        };
         let Some((i, jog)) = (0..m).find_map(|i| {
             let (a, b, c) = (&lines[i], &lines[(i + 1) % m], &lines[(i + 2) % m]);
             if parallel(a, b) {
@@ -108,12 +117,19 @@ pub fn ring(r: &[P], tol: f64, snap: f64, merge: f64, debug: bool) -> Option<Vec
             lines.remove((i + 1) % m);
         }
         let m = lines.len();
-        let i = if jog && (i + 1) % (m + 1) < i { i - 1 } else { i };
+        let i = if jog && (i + 1) % (m + 1) < i {
+            i - 1
+        } else {
+            i
+        };
         let j = (i + 1) % m;
         let (a, b) = (&lines[i], &lines[j]);
         let w = a.len + b.len;
         let merged = Line {
-            p: [(a.p[0] * a.len + b.p[0] * b.len) / w, (a.p[1] * a.len + b.p[1] * b.len) / w],
+            p: [
+                (a.p[0] * a.len + b.p[0] * b.len) / w,
+                (a.p[1] * a.len + b.p[1] * b.len) / w,
+            ],
             dir: a.dir,
             len: w,
             axis: a.axis,
@@ -125,7 +141,12 @@ pub fn ring(r: &[P], tol: f64, snap: f64, merge: f64, debug: bool) -> Option<Vec
 
     if debug {
         for l in &lines {
-            eprintln!("  line {:.2} m axis {:?} dir {:.1}°", l.len, l.axis, l.dir[1].atan2(l.dir[0]).to_degrees());
+            eprintln!(
+                "  line {:.2} m axis {:?} dir {:.1}°",
+                l.len,
+                l.axis,
+                l.dir[1].atan2(l.dir[0]).to_degrees()
+            );
         }
     }
     let m = lines.len();
@@ -133,7 +154,11 @@ pub fn ring(r: &[P], tol: f64, snap: f64, merge: f64, debug: bool) -> Option<Vec
     for i in 0..m {
         let (a, b) = (&lines[i], &lines[(i + 1) % m]);
         let cross = a.dir[0] * b.dir[1] - a.dir[1] * b.dir[0];
-        let x = if cross.abs() > 0.2 { intersect(a, b) } else { None };
+        let x = if cross.abs() > 0.2 {
+            intersect(a, b)
+        } else {
+            None
+        };
         match x {
             // Far-off intersections come from nearly parallel edges; a step between them is truer.
             Some(x) if dist(x, a.end) < 3.0 => out.push(x),
@@ -174,7 +199,11 @@ fn orientations(edges: &[(f64, f64)]) -> Vec<f64> {
     }
     let mut out = Vec::new();
     while out.len() < 3 {
-        let (peak, &w) = hist.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)).unwrap();
+        let (peak, &w) = hist
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .unwrap();
         if w <= 0.0 || (!out.is_empty() && w < MIN_ORIENTATION_SHARE * total * 4.0) {
             break;
         }
@@ -200,7 +229,9 @@ fn orientations(edges: &[(f64, f64)]) -> Vec<f64> {
 pub static FALLBACKS: AtomicUsize = AtomicUsize::new(0);
 
 fn simplify_closed(r: &[P], tol: f64) -> Vec<P> {
-    let far = (1..r.len()).max_by(|&a, &b| dist(r[0], r[a]).total_cmp(&dist(r[0], r[b]))).unwrap_or(0);
+    let far = (1..r.len())
+        .max_by(|&a, &b| dist(r[0], r[a]).total_cmp(&dist(r[0], r[b])))
+        .unwrap_or(0);
     let mut a = r[..=far].to_vec();
     let mut b = r[far..].to_vec();
     b.push(r[0]);
@@ -270,7 +301,11 @@ fn offset(l: &Line, q: P) -> f64 {
 fn seg_dist(p: P, a: P, b: P) -> f64 {
     let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
     let l2 = dx * dx + dy * dy;
-    let t = if l2 == 0.0 { 0.0 } else { (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2).clamp(0.0, 1.0) };
+    let t = if l2 == 0.0 {
+        0.0
+    } else {
+        (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2).clamp(0.0, 1.0)
+    };
     dist(p, [a[0] + t * dx, a[1] + t * dy])
 }
 
@@ -292,7 +327,11 @@ pub fn box_orientation(r: &[P]) -> Option<f64> {
     let c = &b.exterior().0;
     let side = |i: usize| (c[i + 1].x - c[i].x, c[i + 1].y - c[i].y);
     let (a, b) = (side(0), side(1));
-    let (dx, dy) = if a.0.hypot(a.1) >= b.0.hypot(b.1) { a } else { b };
+    let (dx, dy) = if a.0.hypot(a.1) >= b.0.hypot(b.1) {
+        a
+    } else {
+        b
+    };
     Some(dy.atan2(dx))
 }
 

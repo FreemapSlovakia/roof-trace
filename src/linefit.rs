@@ -14,7 +14,9 @@ struct Line {
 impl Line {
     fn fit(pts: Vec<P>) -> Line {
         let n = pts.len() as f64;
-        let c = pts.iter().fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
+        let c = pts
+            .iter()
+            .fold([0.0, 0.0], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
         let (mut sxx, mut sxy, mut syy) = (0.0, 0.0, 0.0);
         for p in &pts {
             let (dx, dy) = (p[0] - c[0], p[1] - c[1]);
@@ -23,7 +25,12 @@ impl Line {
             syy += dy * dy;
         }
         let ang = 0.5 * (2.0 * sxy).atan2(sxx - syy);
-        Line { pts, c, dir: [ang.cos(), ang.sin()], ortho: false }
+        Line {
+            pts,
+            c,
+            dir: [ang.cos(), ang.sin()],
+            ortho: false,
+        }
     }
 
     fn offset(&self, q: P) -> f64 {
@@ -43,7 +50,13 @@ impl Line {
     }
 
     fn rms(&self) -> f64 {
-        (self.pts.iter().map(|&p| self.offset(p).powi(2)).sum::<f64>() / self.pts.len() as f64).sqrt()
+        (self
+            .pts
+            .iter()
+            .map(|&p| self.offset(p).powi(2))
+            .sum::<f64>()
+            / self.pts.len() as f64)
+            .sqrt()
     }
 
     fn angle(&self) -> f64 {
@@ -100,17 +113,30 @@ pub fn ring(r: &[P], res: f64, hidden: &dyn Fn(&P) -> bool) -> Option<(Vec<P>, b
     }
 
     // Break points of a Douglas-Peucker pass split the boundary into straight runs.
-    let far = (1..m).max_by(|&a, &b| dist(dense[0], dense[a]).total_cmp(&dist(dense[0], dense[b]))).unwrap();
+    let far = (1..m)
+        .max_by(|&a, &b| dist(dense[0], dense[a]).total_cmp(&dist(dense[0], dense[b])))
+        .unwrap();
     let mut breaks = vec![0];
     dp(&dense, 0, far, &mut breaks);
     breaks.push(far);
-    let ext: Vec<P> = dense.iter().chain(std::iter::once(&dense[0])).copied().collect();
+    let ext: Vec<P> = dense
+        .iter()
+        .chain(std::iter::once(&dense[0]))
+        .copied()
+        .collect();
     dp(&ext, far, m, &mut breaks);
     breaks.sort_unstable();
     breaks.dedup();
     let mut lines: Vec<Line> = (0..breaks.len())
         .map(|i| {
-            let (a, b) = (breaks[i], if i + 1 < breaks.len() { breaks[i + 1] } else { m });
+            let (a, b) = (
+                breaks[i],
+                if i + 1 < breaks.len() {
+                    breaks[i + 1]
+                } else {
+                    m
+                },
+            );
             Line::fit((a..b).map(|k| dense[k % m]).collect())
         })
         .filter(|l| l.pts.len() >= 2)
@@ -142,7 +168,9 @@ pub fn ring(r: &[P], res: f64, hidden: &dyn Fn(&P) -> bool) -> Option<(Vec<P>, b
         if k <= 4 {
             break;
         }
-        let Some(i) = (0..k).filter(|&i| lines[i].len() < MIN_WALL).min_by(|&a, &b| lines[a].len().total_cmp(&lines[b].len()))
+        let Some(i) = (0..k)
+            .filter(|&i| lines[i].len() < MIN_WALL)
+            .min_by(|&a, &b| lines[a].len().total_cmp(&lines[b].len()))
         else {
             break;
         };
@@ -160,7 +188,9 @@ pub fn ring(r: &[P], res: f64, hidden: &dyn Fn(&P) -> bool) -> Option<(Vec<P>, b
     for l in lines.iter_mut() {
         let k = ((l.angle() - theta) / FRAC_PI_2).round();
         let d = l.angle() - theta - k * FRAC_PI_2;
-        let tol = (ORTHO_NOISE / l.len()).atan().clamp(ORTHO_TOL.to_radians(), ORTHO_MAX.to_radians());
+        let tol = (ORTHO_NOISE / l.len())
+            .atan()
+            .clamp(ORTHO_TOL.to_radians(), ORTHO_MAX.to_radians());
         if d.abs() < tol {
             let a = theta + k * FRAC_PI_2;
             l.dir = [a.cos(), a.sin()];
@@ -171,13 +201,16 @@ pub fn ring(r: &[P], res: f64, hidden: &dyn Fn(&P) -> bool) -> Option<(Vec<P>, b
     // A short wall off the main axes is a cut corner from the raster, and one along a tree crown
     // follows the tree: neither is a skewed wall.
     let shaded = |l: &Line| l.pts.iter().filter(|p| hidden(p)).count() * 2 > l.pts.len();
-    let min_skewed = MIN_SKEWED_WALL.max(MIN_SKEWED_SHARE * lines.iter().map(Line::len).fold(0.0, f64::max));
+    let min_skewed =
+        MIN_SKEWED_WALL.max(MIN_SKEWED_SHARE * lines.iter().map(Line::len).fold(0.0, f64::max));
     loop {
         let k = lines.len();
         if k <= 4 {
             break;
         }
-        let Some(i) = (0..k).filter(|&i| !lines[i].ortho && (lines[i].len() < min_skewed || shaded(&lines[i]))).min_by(|&a, &b| lines[a].len().total_cmp(&lines[b].len()))
+        let Some(i) = (0..k)
+            .filter(|&i| !lines[i].ortho && (lines[i].len() < min_skewed || shaded(&lines[i])))
+            .min_by(|&a, &b| lines[a].len().total_cmp(&lines[b].len()))
         else {
             break;
         };
@@ -200,8 +233,15 @@ pub fn ring(r: &[P], res: f64, hidden: &dyn Fn(&P) -> bool) -> Option<(Vec<P>, b
         let (a, b) = (&lines[i], &lines[j]);
         let pts: Vec<P> = a.pts.iter().chain(&b.pts).copied().collect();
         let n = pts.len() as f64;
-        let c = pts.iter().fold([0.0, 0.0], |s, p| [s[0] + p[0] / n, s[1] + p[1] / n]);
-        let merged = Line { pts, c, dir: a.dir, ortho: a.ortho && b.ortho };
+        let c = pts
+            .iter()
+            .fold([0.0, 0.0], |s, p| [s[0] + p[0] / n, s[1] + p[1] / n]);
+        let merged = Line {
+            pts,
+            c,
+            dir: a.dir,
+            ortho: a.ortho && b.ortho,
+        };
         lines[i] = merged;
         lines.remove(j);
     }
@@ -222,7 +262,10 @@ pub fn ring(r: &[P], res: f64, hidden: &dyn Fn(&P) -> bool) -> Option<(Vec<P>, b
         }
     }
     // Only real walls tell whether the house is square; short ones are often cut corners.
-    let ortho = lines.iter().filter(|l| l.len() >= MAIN_WALL).all(|l| l.ortho);
+    let ortho = lines
+        .iter()
+        .filter(|l| l.len() >= MAIN_WALL)
+        .all(|l| l.ortho);
     (out.len() >= 3).then_some((out, ortho))
 }
 
@@ -231,7 +274,10 @@ fn dp(pts: &[P], lo: usize, hi: usize, out: &mut Vec<usize>) {
         return;
     }
     let (a, b) = (pts[lo], pts[hi.min(pts.len() - 1)]);
-    let (k, d) = (lo + 1..hi).map(|i| (i, seg_dist(pts[i], a, b))).max_by(|x, y| x.1.total_cmp(&y.1)).unwrap();
+    let (k, d) = (lo + 1..hi)
+        .map(|i| (i, seg_dist(pts[i], a, b)))
+        .max_by(|x, y| x.1.total_cmp(&y.1))
+        .unwrap();
     if d > SPLIT_TOL {
         dp(pts, lo, k, out);
         out.push(k);
@@ -257,7 +303,11 @@ fn angle_diff(a: f64, b: f64) -> f64 {
 fn seg_dist(p: P, a: P, b: P) -> f64 {
     let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
     let l2 = dx * dx + dy * dy;
-    let t = if l2 == 0.0 { 0.0 } else { (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2).clamp(0.0, 1.0) };
+    let t = if l2 == 0.0 {
+        0.0
+    } else {
+        (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2).clamp(0.0, 1.0)
+    };
     dist(p, [a[0] + t * dx, a[1] + t * dy])
 }
 

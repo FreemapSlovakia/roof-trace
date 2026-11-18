@@ -29,13 +29,19 @@ pub fn cut(points: &[Pt], theta: f64) -> Option<(Vec<Pt>, Vec<Pt>)> {
 fn line(points: &[Pt], t: f64) -> Option<(f64, f64)> {
     let (s, c) = t.sin_cos();
     // u along the line, v across it.
-    let uv: Vec<[f64; 3]> = points.iter().map(|p| [p[0] * c + p[1] * s, -p[0] * s + p[1] * c, p[2]]).collect();
+    let uv: Vec<[f64; 3]> = points
+        .iter()
+        .map(|p| [p[0] * c + p[1] * s, -p[0] * s + p[1] * c, p[2]])
+        .collect();
     let (mut lo, mut hi) = ([f64::MAX; 2], [f64::MIN; 2]);
     for p in &uv {
         lo = [lo[0].min(p[0]), lo[1].min(p[1])];
         hi = [hi[0].max(p[0]), hi[1].max(p[1])];
     }
-    let (nu, nv) = (((hi[0] - lo[0]) / RES) as usize + 1, ((hi[1] - lo[1]) / RES) as usize + 1);
+    let (nu, nv) = (
+        ((hi[0] - lo[0]) / RES) as usize + 1,
+        ((hi[1] - lo[1]) / RES) as usize + 1,
+    );
     if (nu as f64) * RES < MIN_LENGTH || (nv as f64) * RES < 2.0 * MIN_SIDE || nu * nv > 4_000_000 {
         return None;
     }
@@ -58,12 +64,18 @@ fn line(points: &[Pt], t: f64) -> Option<(f64, f64)> {
             }
             on += 1;
             // The lowest of a few cells across, so the valley may wander a cell.
-            let low = (j - 1..=j + 1).map(|jj| z[jj * nu + i]).filter(|v| !v.is_nan()).fold(here, f64::min);
+            let low = (j - 1..=j + 1)
+                .map(|jj| z[jj * nu + i])
+                .filter(|v| !v.is_nan())
+                .fold(here, f64::min);
             let (a, b) = (z[(j - reach) * nu + i], z[(j + reach) * nu + i]);
             valley += (a > low + RISE && b > low + RISE) as usize;
         }
         let share = valley as f64 / on.max(1) as f64;
-        if (valley as f64) * RES >= MIN_LENGTH && share >= SHARE && best.is_none_or(|(s, _)| share > s) {
+        if (valley as f64) * RES >= MIN_LENGTH
+            && share >= SHARE
+            && best.is_none_or(|(s, _)| share > s)
+        {
             best = Some((share, lo[1] + (j as f64 + 0.5) * RES));
         }
     }

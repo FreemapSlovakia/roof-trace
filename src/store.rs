@@ -44,7 +44,13 @@ impl Cloud {
 
     /// Files and tiles arrive in any order; the roof split depends on point order, so fix it.
     pub fn sort(&mut self) {
-        let cmp = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(x, y)| x.total_cmp(y)).find(|o| o.is_ne()).unwrap_or(std::cmp::Ordering::Equal);
+        let cmp = |a: &[f64], b: &[f64]| {
+            a.iter()
+                .zip(b)
+                .map(|(x, y)| x.total_cmp(y))
+                .find(|o| o.is_ne())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        };
         self.pts.sort_unstable_by(|a, b| cmp(a, b));
         for v in [&mut self.ground, &mut self.veg] {
             v.sort_unstable_by(|a, b| cmp(a, b));
@@ -55,16 +61,20 @@ impl Cloud {
 /// The points of the LAZ file `path` inside `q`.
 pub fn read_file(path: &str, q: [f64; 4]) -> Result<Cloud> {
     let mut c = Cloud::default();
-    scan(path, &[BUILDING, GROUND, MEDIUM_VEGETATION, HIGH_VEGETATION], |class, p, i| {
-        if p[0] < q[0] || p[0] > q[2] || p[1] < q[1] || p[1] > q[3] {
-            return;
-        }
-        match class {
-            BUILDING => c.pts.push([p[0], p[1], p[2], i as f64]),
-            GROUND => c.ground.push(p),
-            _ => c.veg.push(p),
-        }
-    })?;
+    scan(
+        path,
+        &[BUILDING, GROUND, MEDIUM_VEGETATION, HIGH_VEGETATION],
+        |class, p, i| {
+            if p[0] < q[0] || p[0] > q[2] || p[1] < q[1] || p[1] > q[3] {
+                return;
+            }
+            match class {
+                BUILDING => c.pts.push([p[0], p[1], p[2], i as f64]),
+                GROUND => c.ground.push(p),
+                _ => c.veg.push(p),
+            }
+        },
+    )?;
     Ok(c)
 }
 
@@ -81,18 +91,27 @@ fn scan(path: &str, classes: &[u8], mut f: impl FnMut(u8, [f64; 3], u16)) -> Res
             vlr = Some(LazVlr::from_buffer(&v.data)?);
         }
     }
-    let Some(vlr) = vlr else { bail!("{path}: not a LAZ file") };
+    let Some(vlr) = vlr else {
+        bail!("{path}: not a LAZ file")
+    };
     let format = h.point_data_record_format & 0x3f;
     ensure!(format <= 10, "{path}: point format {format} unsupported");
     let legacy = format < 6;
-    let n = h.large_file.map(|l| l.number_of_point_records).unwrap_or(h.number_of_point_records as u64);
+    let n = h
+        .large_file
+        .map(|l| l.number_of_point_records)
+        .unwrap_or(h.number_of_point_records as u64);
     r.seek(SeekFrom::Start(h.offset_to_point_data as u64))?;
 
     // Only the layered formats 6+ can skip fields.
     let sel = if legacy {
         DecompressionSelection::all()
     } else {
-        DecompressionSelection(DecompressionSelection::Z | DecompressionSelection::CLASSIFICATION | DecompressionSelection::INTENSITY)
+        DecompressionSelection(
+            DecompressionSelection::Z
+                | DecompressionSelection::CLASSIFICATION
+                | DecompressionSelection::INTENSITY,
+        )
     };
     let mut dec = LasZipDecompressor::selective(r, vlr, sel)?;
     let len = h.point_data_record_length as usize;
@@ -114,7 +133,11 @@ fn scan(path: &str, classes: &[u8], mut f: impl FnMut(u8, [f64; 3], u16)) -> Res
             }
             let x = i32_at(r, 0) as f64 * h.x_scale_factor + h.x_offset;
             let y = i32_at(r, 4) as f64 * h.y_scale_factor + h.y_offset;
-            f(c, [x, y, i32_at(r, 8) as f64 * h.z_scale_factor + h.z_offset], u16::from_le_bytes([r[12], r[13]]));
+            f(
+                c,
+                [x, y, i32_at(r, 8) as f64 * h.z_scale_factor + h.z_offset],
+                u16::from_le_bytes([r[12], r[13]]),
+            );
         }
     }
     Ok(())
@@ -136,18 +159,27 @@ pub fn create(conn: &Connection) -> Result<()> {
 }
 
 pub fn is_binned(conn: &Connection, file: &str) -> Result<bool> {
-    Ok(conn.query_row("SELECT COUNT(*) FROM binned WHERE file = ?1", [file], |r| r.get::<_, u32>(0))? > 0)
+    Ok(
+        conn.query_row("SELECT COUNT(*) FROM binned WHERE file = ?1", [file], |r| {
+            r.get::<_, u32>(0)
+        })? > 0,
+    )
 }
 
 /// Sorts the points of one LAZ file inside `clip` into tiles, keeping ground and vegetation only
 /// near buildings and thinned, and returns the tiles' chunks.
 pub fn bin(path: &str, clip: [f64; 4]) -> Result<Vec<((i64, i64), Vec<u8>)>> {
-    let inside = |p: &[f64; 3]| p[0] >= clip[0] && p[0] <= clip[2] && p[1] >= clip[1] && p[1] <= clip[3];
+    let inside =
+        |p: &[f64; 3]| p[0] >= clip[0] && p[0] <= clip[2] && p[1] >= clip[1] && p[1] <= clip[3];
     let cell = |p: &[f64; 3], s: f64| ((p[0] / s).floor() as i64, (p[1] / s).floor() as i64);
     // Two passes, so a file's ground and vegetation never have to be held whole: buildings first,
     // then the rest near them.
     let mut pts = Vec::new();
-    scan(path, &[BUILDING], |_, p, i| if inside(&p) { pts.push((p, i)) })?;
+    scan(path, &[BUILDING], |_, p, i| {
+        if inside(&p) {
+            pts.push((p, i))
+        }
+    })?;
     let built: BTreeSet<(i64, i64)> = pts.iter().map(|(p, _)| cell(p, NEAR_CELL)).collect();
     let near = |p: &[f64; 3]| {
         let (i, j) = cell(p, NEAR_CELL);
@@ -156,19 +188,38 @@ pub fn bin(path: &str, clip: [f64; 4]) -> Result<Vec<((i64, i64), Vec<u8>)>> {
     let mut ground: BTreeMap<(i64, i64), [f64; 3]> = BTreeMap::new();
     let mut veg: BTreeMap<(i64, i64), [f64; 3]> = BTreeMap::new();
     if !built.is_empty() {
-        scan(path, &[GROUND, MEDIUM_VEGETATION, HIGH_VEGETATION], |class, p, _| {
-            if !inside(&p) || !near(&p) {
-                return;
-            }
-            if class == GROUND {
-                ground.entry(cell(&p, GROUND_CELL)).and_modify(|q| if p[2] < q[2] { *q = p }).or_insert(p);
-            } else {
-                veg.entry(cell(&p, VEG_CELL)).and_modify(|q| if p[2] > q[2] { *q = p }).or_insert(p);
-            }
-        })?;
+        scan(
+            path,
+            &[GROUND, MEDIUM_VEGETATION, HIGH_VEGETATION],
+            |class, p, _| {
+                if !inside(&p) || !near(&p) {
+                    return;
+                }
+                if class == GROUND {
+                    ground
+                        .entry(cell(&p, GROUND_CELL))
+                        .and_modify(|q| {
+                            if p[2] < q[2] {
+                                *q = p
+                            }
+                        })
+                        .or_insert(p);
+                } else {
+                    veg.entry(cell(&p, VEG_CELL))
+                        .and_modify(|q| {
+                            if p[2] > q[2] {
+                                *q = p
+                            }
+                        })
+                        .or_insert(p);
+                }
+            },
+        )?;
     }
-    let (ground, veg): (Vec<_>, Vec<_>) =
-        (ground.into_values().map(|p| (p, 0)).collect(), veg.into_values().map(|p| (p, 0)).collect());
+    let (ground, veg): (Vec<_>, Vec<_>) = (
+        ground.into_values().map(|p| (p, 0)).collect(),
+        veg.into_values().map(|p| (p, 0)).collect(),
+    );
 
     let mut tiles: BTreeMap<(i64, i64), Vec<u8>> = BTreeMap::new();
     for (pts, class) in [(&pts, BUILDING), (&ground, GROUND), (&veg, HIGH_VEGETATION)] {
@@ -189,7 +240,10 @@ pub fn bin(path: &str, clip: [f64; 4]) -> Result<Vec<((i64, i64), Vec<u8>)>> {
 pub fn save(conn: &mut Connection, file: &str, chunks: &[((i64, i64), Vec<u8>)]) -> Result<()> {
     let tx = conn.transaction()?;
     for ((x, y), data) in chunks {
-        tx.execute("INSERT INTO chunk (tx, ty, data) VALUES (?1, ?2, ?3)", params![x, y, data])?;
+        tx.execute(
+            "INSERT INTO chunk (tx, ty, data) VALUES (?1, ?2, ?3)",
+            params![x, y, data],
+        )?;
     }
     tx.execute("INSERT INTO binned (file) VALUES (?1)", [file])?;
     tx.commit()?;
@@ -199,15 +253,24 @@ pub fn save(conn: &mut Connection, file: &str, chunks: &[((i64, i64), Vec<u8>)])
 /// Stored points inside `q`.
 pub fn load(conn: &Connection, q: [f64; 4]) -> Result<Cloud> {
     let t = |v: f64| (v / TILE).floor() as i64;
-    let mut stmt = conn.prepare_cached("SELECT tx, ty, data FROM chunk WHERE tx BETWEEN ?1 AND ?2 AND ty BETWEEN ?3 AND ?4")?;
+    let mut stmt = conn.prepare_cached(
+        "SELECT tx, ty, data FROM chunk WHERE tx BETWEEN ?1 AND ?2 AND ty BETWEEN ?3 AND ?4",
+    )?;
     let mut rows = stmt.query(params![t(q[0]), t(q[2]), t(q[1]), t(q[3])])?;
     // Stores binned before intensity was kept have 13-byte records.
-    let with_intensity = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name = 'format'", [], |r| r.get::<_, u32>(0))? > 0
+    let with_intensity = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE name = 'format'",
+        [],
+        |r| r.get::<_, u32>(0),
+    )? > 0
         && conn.query_row("SELECT COUNT(*) FROM format", [], |r| r.get::<_, u32>(0))? > 0;
     let len = if with_intensity { 15 } else { 13 };
     let mut c = Cloud::default();
     while let Some(r) = rows.next()? {
-        let (x0, y0) = (r.get::<_, i64>(0)? as f64 * TILE, r.get::<_, i64>(1)? as f64 * TILE);
+        let (x0, y0) = (
+            r.get::<_, i64>(0)? as f64 * TILE,
+            r.get::<_, i64>(1)? as f64 * TILE,
+        );
         let data = r.get_ref(2)?.as_blob()?;
         for p in data.chunks_exact(len) {
             let f = |o: usize| f32::from_le_bytes(p[o..o + 4].try_into().unwrap()) as f64;
@@ -216,7 +279,16 @@ pub fn load(conn: &Connection, q: [f64; 4]) -> Result<Cloud> {
                 continue;
             }
             match p[12] {
-                BUILDING => c.pts.push([pt[0], pt[1], pt[2], if with_intensity { u16::from_le_bytes([p[13], p[14]]) as f64 } else { f64::NAN }]),
+                BUILDING => c.pts.push([
+                    pt[0],
+                    pt[1],
+                    pt[2],
+                    if with_intensity {
+                        u16::from_le_bytes([p[13], p[14]]) as f64
+                    } else {
+                        f64::NAN
+                    },
+                ]),
                 GROUND => c.ground.push(pt),
                 _ => c.veg.push(pt),
             }
@@ -229,6 +301,9 @@ pub fn load(conn: &Connection, q: [f64; 4]) -> Result<Cloud> {
 pub fn tiles(conn: &Connection, q: [f64; 4]) -> Result<Vec<(i64, i64)>> {
     let t = |v: f64| (v / TILE).floor() as i64;
     let mut stmt = conn.prepare("SELECT DISTINCT tx, ty FROM chunk WHERE tx BETWEEN ?1 AND ?2 AND ty BETWEEN ?3 AND ?4 ORDER BY tx, ty")?;
-    let rows = stmt.query_map(params![t(q[0]), t(q[2] - 1e-6), t(q[1]), t(q[3] - 1e-6)], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    let rows = stmt.query_map(
+        params![t(q[0]), t(q[2] - 1e-6), t(q[1]), t(q[3] - 1e-6)],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }

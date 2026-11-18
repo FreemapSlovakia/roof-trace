@@ -26,7 +26,10 @@ pub struct Building {
 
 impl Building {
     pub fn centroid(&self) -> (f64, f64) {
-        (self.sum.0 / self.sum.2 as f64, self.sum.1 / self.sum.2 as f64)
+        (
+            self.sum.0 / self.sum.2 as f64,
+            self.sum.1 / self.sum.2 as f64,
+        )
     }
 }
 
@@ -43,7 +46,13 @@ impl Grid {
     pub fn new(q: [f64; 4], res: f64, pts: &[Pt], ground: &[[f64; 3]]) -> Self {
         let w = ((q[2] - q[0]) / res).ceil() as usize;
         let h = ((q[3] - q[1]) / res).ceil() as usize;
-        let mut g = Grid { x0: q[0], y0: q[1], res, w, h, occ: vec![false; w * h],
+        let mut g = Grid {
+            x0: q[0],
+            y0: q[1],
+            res,
+            w,
+            h,
+            occ: vec![false; w * h],
             z: vec![f32::MIN; w * h],
             pts: pts.to_vec(),
         };
@@ -69,7 +78,13 @@ impl Grid {
         let reach = g.reach();
         let mut closed: BTreeMap<usize, Vec<bool>> = BTreeMap::new();
         for &r in &reach {
-            closed.entry(r).or_insert_with(|| if r == 1 { g.morph(&g.morph(&g.occ, true), false) } else { g.close_round(r) });
+            closed.entry(r).or_insert_with(|| {
+                if r == 1 {
+                    g.morph(&g.morph(&g.occ, true), false)
+                } else {
+                    g.close_round(r)
+                }
+            });
         }
         for k in 0..g.occ.len() {
             g.occ[k] |= closed[&reach[k]][k] && !bare[k];
@@ -85,12 +100,19 @@ impl Grid {
 
     /// Per cell, the closing radius (cells) that bridges the spacing of the points around it.
     fn reach(&self) -> Vec<usize> {
-        let (cw, ch) = (((self.w as f64 * self.res) / DENSITY_CELL).ceil() as usize, ((self.h as f64 * self.res) / DENSITY_CELL).ceil() as usize);
+        let (cw, ch) = (
+            ((self.w as f64 * self.res) / DENSITY_CELL).ceil() as usize,
+            ((self.h as f64 * self.res) / DENSITY_CELL).ceil() as usize,
+        );
         // Occupied cells rather than points: scan lines bunch points up without covering more roof.
         let mut n = vec![0usize; cw * ch];
         for k in (0..self.occ.len()).filter(|&k| self.occ[k]) {
-            let (x, y) = ((k % self.w) as f64 * self.res, (k / self.w) as f64 * self.res);
-            n[((y / DENSITY_CELL) as usize).min(ch - 1) * cw + ((x / DENSITY_CELL) as usize).min(cw - 1)] += 1;
+            let (x, y) = (
+                (k % self.w) as f64 * self.res,
+                (k / self.w) as f64 * self.res,
+            );
+            n[((y / DENSITY_CELL) as usize).min(ch - 1) * cw
+                + ((x / DENSITY_CELL) as usize).min(cw - 1)] += 1;
         }
         // The densest neighbouring cell, so that a roof's edge cells, half off the roof, count as
         // dense as its middle.
@@ -114,8 +136,12 @@ impl Grid {
             .collect();
         (0..self.w * self.h)
             .map(|k| {
-                let (x, y) = ((k % self.w) as f64 * self.res, (k / self.w) as f64 * self.res);
-                radius[((y / DENSITY_CELL) as usize).min(ch - 1) * cw + ((x / DENSITY_CELL) as usize).min(cw - 1)]
+                let (x, y) = (
+                    (k % self.w) as f64 * self.res,
+                    (k / self.w) as f64 * self.res,
+                );
+                radius[((y / DENSITY_CELL) as usize).min(ch - 1) * cw
+                    + ((x / DENSITY_CELL) as usize).min(cw - 1)]
             })
             .collect()
     }
@@ -170,9 +196,15 @@ impl Grid {
     /// Closing by a disc of radius `r` cells; a square would leave steps along the grid.
     fn close_round(&self, r: usize) -> Vec<bool> {
         let r2 = (r * r) as f64;
-        let grown: Vec<bool> = edt(&self.occ, self.w, self.h).iter().map(|&d| d <= r2).collect();
+        let grown: Vec<bool> = edt(&self.occ, self.w, self.h)
+            .iter()
+            .map(|&d| d <= r2)
+            .collect();
         let outside: Vec<bool> = grown.iter().map(|v| !v).collect();
-        edt(&outside, self.w, self.h).iter().map(|&d| d > r2).collect()
+        edt(&outside, self.w, self.h)
+            .iter()
+            .map(|&d| d > r2)
+            .collect()
     }
 
     fn fill_gaps(&mut self) {
@@ -233,8 +265,11 @@ impl Grid {
     pub fn buildings(&self, min_area: f64) -> Vec<Building> {
         let cell = self.res * self.res;
         let mut label = vec![usize::MAX; self.occ.len()];
-        let comps: Vec<Vec<usize>> =
-            self.components(&self.occ).into_iter().filter(|c| c.len() as f64 * cell >= min_area).collect();
+        let comps: Vec<Vec<usize>> = self
+            .components(&self.occ)
+            .into_iter()
+            .filter(|c| c.len() as f64 * cell >= min_area)
+            .collect();
         for (n, c) in comps.iter().enumerate() {
             for &k in c {
                 label[k] = n;
@@ -277,7 +312,11 @@ impl Grid {
     /// Boundary rings of component `n` along cell edges, interior on the left.
     fn trace(&self, comp: &[usize], label: &[usize], n: usize) -> Vec<Vec<[f64; 2]>> {
         let inside = |i: isize, j: isize| {
-            i >= 0 && j >= 0 && (i as usize) < self.w && (j as usize) < self.h && label[j as usize * self.w + i as usize] == n
+            i >= 0
+                && j >= 0
+                && (i as usize) < self.w
+                && (j as usize) < self.h
+                && label[j as usize * self.w + i as usize] == n
         };
         // Directed edges keyed by start corner.
         let mut out: BTreeMap<(isize, isize), Vec<(isize, isize)>> = BTreeMap::new();
@@ -298,8 +337,10 @@ impl Grid {
         }
         let mut rings = Vec::new();
         // Starting where only one edge leaves, the walk is back at its start exactly when the ring closes.
-        while let Some((&start, _)) =
-            out.iter().find(|(_, v)| v.len() == 1).or_else(|| out.iter().find(|(_, v)| !v.is_empty()))
+        while let Some((&start, _)) = out
+            .iter()
+            .find(|(_, v)| v.len() == 1)
+            .or_else(|| out.iter().find(|(_, v)| !v.is_empty()))
         {
             let mut v = start;
             let mut dir = out.get_mut(&v).unwrap().pop().unwrap();
@@ -361,7 +402,9 @@ fn edt_1d(f: &[f64]) -> Vec<f64> {
     let mut k = 0;
     z[0] = f64::NEG_INFINITY;
     z[1] = f64::INFINITY;
-    let cross = |q: usize, p: usize| ((f[q] + (q * q) as f64) - (f[p] + (p * p) as f64)) / (2.0 * (q as f64 - p as f64));
+    let cross = |q: usize, p: usize| {
+        ((f[q] + (q * q) as f64) - (f[p] + (p * p) as f64)) / (2.0 * (q as f64 - p as f64))
+    };
     for q in 1..n {
         let mut s = cross(q, v[k]);
         while s <= z[k] {
@@ -388,5 +431,8 @@ fn edt_1d(f: &[f64]) -> Vec<f64> {
 /// Signed area, positive for counter-clockwise.
 pub fn ring_area(r: &[[f64; 2]]) -> f64 {
     let n = r.len();
-    (0..n).map(|i| r[i][0] * r[(i + 1) % n][1] - r[(i + 1) % n][0] * r[i][1]).sum::<f64>() / 2.0
+    (0..n)
+        .map(|i| r[i][0] * r[(i + 1) % n][1] - r[(i + 1) % n][0] * r[i][1])
+        .sum::<f64>()
+        / 2.0
 }

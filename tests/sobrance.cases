@@ -27,3 +27,10 @@ split -191525.6 -1246854.4 -191530.0 -1246862.5  # lower shed at the end of a ga
 split -195932.7 -1249018.2 -195932.2 -1249023.2  # two red houses in a row
 split -195074.4 -1245207.7 -195070.4 -1245211.7  # low white shed against a house
 split -195264.5 -1240828.5 -195257.5 -1240831.5  # low strip along a tall hipped house
+corners -198120.7 -1255046.3 4  # porch at the entrance makes a bulge
+split -187157.4 -1243364.7 -187150.3 -1243382.6  # hipped house and the shed behind it
+split -191492.0 -1246862.8 -191496.7 -1246871.3  # lower brown-roofed end of a gabled house
+split -195477.9 -1244622.8 -195484.0 -1244629.5  # end section of a long shed, roofed apart
+split -196805.1 -1252348.6 -196815.7 -1252354.3  # lower hipped end of a long house
+split -192033.6 -1246739.3 -192026.6 -1246743.7  # brown shed at the end of a gabled house
+split -195800.2 -1249164.6 -195803.2 -1249175.6  # lower gabled end of a house, its ridge set aside

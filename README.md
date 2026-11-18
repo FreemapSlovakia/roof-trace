@@ -7,8 +7,9 @@ is not.
 
 Attached houses are split where their roofs differ (height, slope, ridge direction, a valley
 between them, roofing told apart by the points' intensity). Houses with a narrow gap between them
-stay apart where ground is seen in it. Splitting errs towards too many parts: merging two ways in an
-editor is quicker than finding where one should be cut.
+stay apart where ground is seen in it, and so do roofs whose faces meet across the line their
+planes would meet along, as gabled houses with ridges set apart do. Splitting errs towards too
+many parts: merging two ways in an editor is quicker than finding where one should be cut.
 
 Each building gets `building=yes`, `height` (ridge above the lowest ground around it) and, where
 the roof is one of the simple shapes, `roof:shape`, `roof:height` and `roof:orientation`.

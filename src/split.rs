@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, f64::consts::FRAC_PI_2};
+use std::{
+    collections::BTreeMap,
+    f64::consts::{FRAC_PI_2, PI},
+};
 
 type P3 = crate::store::Pt;
 
@@ -503,13 +506,18 @@ pub fn parts(
         } else {
             same
         };
+        let tilt = (planes[r].a - planes[s].a).abs() + (planes[r].b - planes[s].b).abs();
+        // Coplanar faces meet along no line.
+        let along = tilt < SLOPE_TOL || along_meet(&edge_pts[&(r, s)], &planes[r], &planes[s]);
         // A wing meets the main roof in a valley running diagonally across the walls; neighbouring
         // houses meet in one running along them.
         let wing = cont as f64 > SAME_ROOF_SHARE * total as f64
             && total >= MIN_COPLANAR_EDGE
             && diagonal(&edge_pts[&(r, s)], thetas)
+            && along
             && !unlike(&face_roofing, r, s);
-        if wing || (same >= MIN_JOIN_EDGE && same as f64 > SAME_ROOF_SHARE * total as f64) {
+        if wing || (along && same >= MIN_JOIN_EDGE && same as f64 > SAME_ROOF_SHARE * total as f64)
+        {
             if debug {
                 let c = |f: usize| {
                     let v: Vec<[f64; 2]> =
@@ -529,8 +537,7 @@ pub fn parts(
                 );
             }
             // Only a ridge between two roofs is a bridge to judge; pieces of one face are one roof.
-            let flat_pair =
-                (planes[r].a - planes[s].a).abs() + (planes[r].b - planes[s].b).abs() < PIECE_TOL;
+            let flat_pair = tilt < PIECE_TOL;
             joins.push((r, s, wing || flat_pair));
         }
         support.insert((r, s), if wing { total } else { same.min(total) });
@@ -1181,6 +1188,28 @@ fn diagonal(b: &[[f64; 2]], thetas: &[f64]) -> bool {
     let Some(t) = thetas.first() else {
         return false;
     };
+    let d = (direction(b) - t).rem_euclid(FRAC_PI_2);
+    (d - FRAC_PI_2 / 2.0).abs() < DIAGONAL_TOL.to_radians()
+}
+
+/// Whether a boundary runs along the line where the two faces' planes meet, as a ridge, hip or
+/// valley does; faces of two roofs crossing at their ends meet across it.
+fn along_meet(b: &[[f64; 2]], pr: &Plane, ps: &Plane) -> bool {
+    let dir = direction(b);
+    let (sin, cos) = dir.sin_cos();
+    let along = b.iter().map(|p| p[0] * cos + p[1] * sin);
+    let run = along.clone().fold(f64::MIN, f64::max) - along.fold(f64::MAX, f64::min);
+    // A boundary this short has no direction to judge.
+    if run < MIN_MEET_RUN {
+        return true;
+    }
+    let line = (pr.a - ps.a).atan2(ps.b - pr.b);
+    let d = (dir - line).rem_euclid(PI);
+    d.min(PI - d) < MEET_TOL.to_radians()
+}
+
+/// The main direction of points `b` (radians).
+fn direction(b: &[[f64; 2]]) -> f64 {
     let n = b.len() as f64;
     let c = b
         .iter()
@@ -1192,9 +1221,7 @@ fn diagonal(b: &[[f64; 2]], thetas: &[f64]) -> bool {
         sxy += dx * dy;
         syy += dy * dy;
     }
-    let ang = 0.5 * (2.0 * sxy).atan2(sxx - syy);
-    let d = (ang - t).rem_euclid(FRAC_PI_2);
-    (d - FRAC_PI_2 / 2.0).abs() < DIAGONAL_TOL.to_radians()
+    0.5 * (2.0 * sxy).atan2(sxx - syy)
 }
 
 /// Whether the boundary `b` runs along the walls in at most two straight runs, as between
@@ -1246,6 +1273,10 @@ const STEP_SHARE: f64 = 0.8;
 
 /// How far from 45° to the walls a valley may run and still join a wing (degrees).
 const DIAGONAL_TOL: f64 = 15.0;
+/// How far a ridge, hip or valley may run from the line where its faces' planes meet (degrees).
+const MEET_TOL: f64 = 30.0;
+/// The shortest boundary (m) whose direction is judged against the faces' meeting line.
+const MIN_MEET_RUN: f64 = 1.0;
 
 /// The 4-neighbours of cell `k` in a `w` × `ht` grid.
 pub(crate) fn neighbours(k: usize, w: usize, ht: usize) -> impl Iterator<Item = usize> {

@@ -34,3 +34,6 @@ split -195477.9 -1244622.8 -195484.0 -1244629.5  # end section of a long shed, r
 split -196805.1 -1252348.6 -196815.7 -1252354.3  # lower hipped end of a long house
 split -192033.6 -1246739.3 -192026.6 -1246743.7  # brown shed at the end of a gabled house
 split -195800.2 -1249164.6 -195803.2 -1249175.6  # lower gabled end of a house, its ridge set aside
+split -187108.4 -1243300.8 -187098.3 -1243292.6  # annex in the corner of a hipped house
+split -197616.6 -1255168.0 -197611.6 -1255161.0  # lower hipped end of a long house, its ridge set aside
+split -187102.3 -1243295.8 -187098.3 -1243293.3  # low garage beside a hipped house

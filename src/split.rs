@@ -628,6 +628,12 @@ pub fn parts(
         }
     }
     let unjoined: Vec<usize> = unjoined.into_iter().map(|f| find(&mut root, f)).collect();
+    // Parts holding two faces that meet at a ridge: a gabled roof of their own.
+    let ridged: Vec<usize> = joins
+        .iter()
+        .filter(|&&(r, s, _)| planes[r].a * planes[s].a + planes[r].b * planes[s].b < 0.0)
+        .map(|&(r, _, _)| find(&mut root, r))
+        .collect();
 
     // Slivers, and strips too narrow for a house (side hips, eaves, porch roofs), join the neighbour
     // they share most boundary with. A small roof well below any neighbour's is a shed or garage
@@ -690,8 +696,10 @@ pub fn parts(
         let shed = shared
             .values()
             .any(|&(c, rise)| c as f64 >= SHED_EDGE * total as f64 && rise / c as f64 > SHED_STEP);
-        // A roof of its own, stepped from the one it touches, is a building however small.
-        let own = unjoined.contains(&small) && width(&cells[&small]) >= MIN_WIDTH;
+        // A roof of its own, stepped from the one it touches or with its own ridge, is a building
+        // however small.
+        let own = (unjoined.contains(&small) || ridged.contains(&small))
+            && width(&cells[&small]) >= MIN_WIDTH;
         // A flat roof against a pitched one, well under its top: a garage or annex at the eaves.
         let top = |l: usize| {
             let mut h: Vec<f64> = (0..z.len())

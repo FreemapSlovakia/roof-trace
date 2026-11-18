@@ -3,7 +3,6 @@ same -197067 -1255644 -197074.4 -1255651.5  # L-shaped house split across its bo
 same -187212.6 -1245016.5 -187225.6 -1245009.8  # hip end of a house given to the shed beside it
 same -186977.7 -1243226.3 -186973.9 -1243225.7  # house whose long roof slope flattens lower down
 split -186922.7 -1243203.4 -186921.7 -1243210.4  # lower shed at the end of a gabled house
-split -187108.4 -1243300.8 -187098.3 -1243292.6  # annex in the corner of a hipped house
 split -187150.3 -1243382.6 -187148.0 -1243394.3  # shed and the garage behind it
 same -195262.6 -1245026.1 -195251.8 -1245018.0  # house cut across near its end
 same -191716.0 -1246734.5 -191717.3 -1246740.9  # hipped house cut across its middle
@@ -23,13 +22,11 @@ split -195863.1 -1249039.6 -195862.1 -1249047.6  # brown house at the end of a l
 split -195938.2 -1249029.2 -195932.2 -1249023.2  # red house beside a long shed
 split -196014.8 -1249021.6 -196011.3 -1249021.6  # lower strip along a dark shed
 split -196015.3 -1249029.6 -196010.3 -1249029.6  # tan shed beside a dark one
-split -187102.3 -1243295.8 -187098.3 -1243293.3  # low garage beside a hipped house
 split -187146.9 -1243286.7 -187142.9 -1243286.7  # lower strip along a tall flat block
 same -195518.6 -1244720.6 -195514.6 -1244718.6  # hip end of a house given to the low shed at its end
 same -195330.6 -1241008.4 -195330.6 -1241012.9  # gabled house cut along its ridge
 split -195914.2 -1249037.9 -195920.2 -1249034.9  # low wing at the corner of a hipped house
 empty -197303.2 -1255360.6  # tree over the edge of a hipped roof
-split -197616.6 -1255168.0 -197611.6 -1255161.0  # lower hipped end of a long house, its ridge set aside
 split -198148.4 -1255053.9 -198144.4 -1255049.9  # low flat annex at the end of a gabled house
 empty -197140.9 -1252707.8  # tree over the end of a hipped house
 split -197562.2 -1252204.6 -197557.2 -1252200.6  # two gabled houses in a row, their ridges set apart

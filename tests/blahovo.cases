@@ -1,0 +1,5 @@
+# Veľké Blahovo square (-560000 -1300000), LOT04
+split -550225.0 -1287123.8 -550235.5 -1287130.5  # lighter lower end of a hipped house
+split -550233.6 -1287099.4 -550243.8 -1287110.3  # gabled house behind a hipped one, roofed apart
+split -550247.1 -1287090.0 -550240.7 -1287084.8  # flat grey end of a row of houses, at the eaves
+empty -550239.2 -1287104.3  # gap between a gabled house and the hipped one behind it

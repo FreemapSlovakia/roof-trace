@@ -871,6 +871,17 @@ fn ridge_dir(points: &[store::Pt]) -> Option<f64> {
 /// of the blob along its walls, if that fits; returns whether it did.
 fn partition_blob(traced: &mut Vec<Part>, all: &[[f64; 2]], ring: &[[f64; 2]], veg: &VegIndex, ground: &VegIndex, args: &Args, debug: bool) -> bool {
     let Some(&theta) = regularize::wall_orientations(ring, args.simplify).first() else { return false };
+    // Cut along the blob's walls or its largest house's, and not at all where they disagree: a
+    // shed or fence can square the blob to another direction.
+    let main = traced.iter().max_by_key(|(p, _)| p.len()).and_then(|(_, t)| t.0.first());
+    let own = main.and_then(|r| regularize::wall_orientations(r, args.simplify).first().copied()).unwrap_or(theta);
+    let d = (own - theta).rem_euclid(std::f64::consts::FRAC_PI_2);
+    if d.min(std::f64::consts::FRAC_PI_2 - d) > PARTITION_SKEW.to_radians() {
+        if debug {
+            eprintln!("partition: blob at {:.0}°, its largest house at {:.0}°", theta.to_degrees(), own.to_degrees());
+        }
+        return false;
+    }
     let parts: Vec<&[store::Pt]> = traced.iter().map(|(p, _)| &p[..]).collect();
     let mut q = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
     let mut z = Vec::new();
@@ -888,9 +899,10 @@ fn partition_blob(traced: &mut Vec<Part>, all: &[[f64; 2]], ring: &[[f64; 2]], v
     let bare: Vec<[f64; 2]> = ground.query(q).map(|p| [p[0], p[1]]).collect();
     // A degree or two off turns a long wall into steps.
     let steps = (PARTITION_SEARCH / PARTITION_STEP).round() as i32;
-    let own: Vec<&Vec<Vec<[f64; 2]>>> = traced.iter().map(|(_, t)| &t.0).collect();
+    let outlines: Vec<&Vec<Vec<[f64; 2]>>> = traced.iter().map(|(_, t)| &t.0).collect();
     let Some(best) = (-steps..=steps)
-        .filter_map(|k| partition::partition(&parts, &own, all, &cover, &bare, theta + (k as f64 * PARTITION_STEP).to_radians()))
+        .flat_map(|k| [theta, own].map(|t| t + (k as f64 * PARTITION_STEP).to_radians()))
+        .filter_map(|t| partition::partition(&parts, &outlines, all, &cover, &bare, t))
         .min_by(|a, b| a.cost.total_cmp(&b.cost))
     else {
         return false;
@@ -964,6 +976,8 @@ fn ring_poly(r: &[[f64; 2]]) -> geo::Polygon<f64> {
 /// Directions tried around the blob's walls (degrees), and the step between them.
 const PARTITION_SEARCH: f64 = 2.0;
 const PARTITION_STEP: f64 = 0.5;
+/// A blob turned further than this (degrees) from its largest house is not partitioned.
+const PARTITION_SKEW: f64 = 5.0;
 
 /// Area, short side and direction of the long side (radians) of the smallest rectangle around
 /// `rings` aligned to one of their edges.

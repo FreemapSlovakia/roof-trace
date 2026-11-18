@@ -11,6 +11,8 @@ type P = [f64; 2];
 const RES: f64 = 0.25;
 /// A line is a candidate where labels change along at least this much of it (m).
 const MIN_RUN: f64 = 1.0;
+/// A strip without roof points at least this wide (m) between two houses is a gap between them.
+const MIN_GAP: f64 = 0.75;
 /// A line stays only if removing it would misassign more than this area (m²).
 const LINE_COST: f64 = 1.0;
 /// Cost of a corner in an outline, in misassigned m².
@@ -103,6 +105,39 @@ pub fn partition(parts: &[&[Pt]], own: &[&Vec<Vec<P>>], all: &[P], cover: &[P], 
             for m in neighbours(k, w, h) {
                 ground[m] = true;
             }
+        }
+    }
+    // A strip without roof points between two houses, along the walls and with ground seen in it, is
+    // a gap the mask's closing bridged: they stand apart.
+    let has_pts: Vec<bool> = (0..w * h).map(|k| counts[k * n_parts..(k + 1) * n_parts].iter().any(|&c| c > 0)).collect();
+    let min_gap = (MIN_GAP / res).ceil() as usize;
+    let mut gap = vec![false; w * h];
+    for (len, step, lines, line_step) in [(w, 1, h, w), (h, w, w, 1)] {
+        for line in 0..lines {
+            let at = |t: usize| line * line_step + t * step;
+            let mut t = 0;
+            while t < len {
+                if has_pts[at(t)] || !occ[at(t)] {
+                    t += 1;
+                    continue;
+                }
+                let start = t;
+                while t < len && !has_pts[at(t)] && occ[at(t)] {
+                    t += 1;
+                }
+                let ends = (start > 0 && t < len).then(|| (at(start - 1), at(t)));
+                let apart = ends.is_some_and(|(a, b)| has_pts[a] && has_pts[b] && label[a] != label[b]);
+                if apart && t - start >= min_gap && (start..t).any(|u| ground[at(u)]) {
+                    for u in start..t {
+                        gap[at(u)] = true;
+                    }
+                }
+            }
+        }
+    }
+    for k in 0..w * h {
+        if gap[k] {
+            label[k] = empty;
         }
     }
     for p in cover {

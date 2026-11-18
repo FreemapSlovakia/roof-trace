@@ -20,6 +20,7 @@ pub struct Faces {
 }
 
 pub fn faces(points: &[P3], res: f64) -> Faces {
+    let min_cells = (MIN_PLANE_AREA / (res * res)).round() as usize;
     let mut q = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
     for p in points {
         q = [q[0].min(p[0]), q[1].min(p[1]), q[2].max(p[0]), q[3].max(p[1])];
@@ -198,7 +199,7 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
     // Planes too small to be a roof face are dissolved; their cells, and ridge and edge cells no
     // plane took, go to the neighbouring plane they fit best.
     for l in label.iter_mut() {
-        if *l != 0 && planes[*l].n < MIN_PLANE_CELLS {
+        if *l != 0 && planes[*l].n < min_cells {
             *l = 0;
         }
     }
@@ -262,7 +263,7 @@ pub fn faces(points: &[P3], res: f64) -> Faces {
         for &k in pieces.iter().flatten() {
             piece[k] = 0;
         }
-        let big: Vec<usize> = (0..pieces.len()).filter(|&p| pieces[p].len() >= MIN_PLANE_CELLS).collect();
+        let big: Vec<usize> = (0..pieces.len()).filter(|&p| pieces[p].len() >= min_cells).collect();
         if big.len() < 2 {
             continue;
         }
@@ -474,14 +475,22 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
             if debug {
                 eprintln!("bridge {} + {}: share {share:.2}, top {:.1} against eaves {:.1}", joins[i].0, joins[i].1, small.2, large.1);
             }
-            if !(small.2 < large.1 + ANNEX_RISE) {
+            // A lower end topped well under the house's ridge is judged more readily, where a ridge
+            // joins them; one slope running on into it is one roof.
+            let (pr, ps) = (&planes[joins[i].0], &planes[joins[i].1]);
+            let ridge = pr.a * ps.a + pr.b * ps.b < 0.0;
+            let limit = if small.2 < large.1 + ANNEX_RISE {
+                BRIDGE_SHARE
+            } else if ridge && large.2 - small.2 > OBLIQUE_STEP {
+                LOWER_BRIDGE_SHARE
+            } else {
                 continue;
-            }
-            if weakest.is_none_or(|w| share < w.0) {
+            };
+            if share < limit && weakest.is_none_or(|w| share < w.0) {
                 weakest = Some((share, i, same, total));
             }
         }
-        let Some((share, i, same, total)) = weakest.filter(|w| w.0 < BRIDGE_SHARE) else { break };
+        let Some((share, i, same, total)) = weakest else { break };
         if debug {
             eprintln!("unjoin {} + {}: {same} of {total} boundary cells between their roofs look like one or are continuous ({share:.2})", joins[i].0, joins[i].1);
         }
@@ -555,7 +564,21 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
         let shed = shared.values().any(|&(c, rise)| c as f64 >= SHED_EDGE * total as f64 && rise / c as f64 > SHED_STEP);
         // A roof of its own, stepped from the one it touches, is a building however small.
         let own = unjoined.contains(&small) && width(&cells[&small]) >= MIN_WIDTH;
-        if (shed || own) && area[&small] as f64 * cell_area >= MIN_SHED {
+        // A flat roof against a pitched one, well under its top: a garage or annex at the eaves.
+        let top = |l: usize| {
+            let mut h: Vec<f64> = (0..z.len()).filter(|&k| label[k] == l && !z[k].is_nan()).map(|k| z[k]).collect();
+            h.sort_by(f64::total_cmp);
+            h.get(h.len() * 95 / 100).copied().unwrap_or(f64::NAN)
+        };
+        let pitch = |l: usize| planes[l].a.hypot(planes[l].b);
+        let flat = pitch(small) < ANNEX_SLOPE
+            && pitch(into) > ANNEX_SLOPE
+            && top(into) - top(small) > OBLIQUE_STEP
+            && area[&small] as f64 * cell_area >= MIN_GARAGE;
+        if debug && pitch(small) < ANNEX_SLOPE {
+            eprintln!("flat {small}: top {:.1}, {into} pitched {:.2}, top {:.1}", top(small), pitch(into), top(into));
+        }
+        if (shed || own || flat) && area[&small] as f64 * cell_area >= MIN_SHED {
             if debug {
                 eprintln!("small {small} ({} cells), neighbours {shared:?}: a shed or a roof of its own", area[&small]);
             }
@@ -655,6 +678,7 @@ pub fn parts(points: &[P3], thetas: &[f64], res: f64, min_part: f64, debug: bool
                     && !stepped(b, thetas)
                     && !below(p, q)
                     && !below(q, p)
+                    && (pct(p, 0.95) - pct(q, 0.95)).abs() < OBLIQUE_STEP
                     && !unlike(&part_roofing, p, q);
                 oblique || wing(p, q) || wing(q, p)
             })
@@ -817,8 +841,8 @@ const OPPOSITE_COS: f64 = 0.9;
 const PITCH_RATIO: f64 = 1.6;
 /// Faces or parts whose median intensities differ by more are of unlike roofing.
 pub const INT_TOL: f64 = 6000.0;
-/// Faces smaller than this many cells are dissolved into their neighbours.
-const MIN_PLANE_CELLS: usize = 20;
+/// Faces smaller than this (m²) are dissolved into their neighbours.
+const MIN_PLANE_AREA: f64 = 5.0;
 /// Two faces are continuous where they meet within this height (m).
 const JOIN_TOL: f64 = 0.3;
 /// Share of the smaller face's outline that coplanar faces must share to be pieces of one face.
@@ -842,6 +866,8 @@ const SAME_ROOF_SHARE: f64 = 0.6;
 /// Share of the whole boundary between two roofs joined by a single pair of faces that must look
 /// like one roof.
 const BRIDGE_SHARE: f64 = 0.3;
+/// The same for a part topped more than OBLIQUE_STEP under the other.
+const LOWER_BRIDGE_SHARE: f64 = 0.4;
 /// Largest slope difference (sum of both components, per m) of two pieces of one face, tighter than
 /// [`SLOPE_TOL`] so low roofs falling different ways are not taken for one.
 const PIECE_TOL: f64 = 0.15;
@@ -899,6 +925,11 @@ const SHED_STEP: f64 = 1.0;
 const SHED_EDGE: f64 = 0.3;
 /// A part whose roof tops out less than this (m) above another's eaves is an annex.
 const ANNEX_RISE: f64 = 0.5;
+/// A part cut off along a hip line reaches nearly as high as the rest; one topped this much lower
+/// is a roof of its own.
+const OBLIQUE_STEP: f64 = 1.5;
+/// Least area of a flat annex (m²); smaller flat patches are porches and terraces.
+const MIN_GARAGE: f64 = 15.0;
 /// ... if at least this large (m²).
 const MIN_SHED: f64 = 8.0;
 /// A part sharing this much of its neighbour's side is flush with it, not a wing.

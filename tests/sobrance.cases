@@ -22,3 +22,8 @@ split -197339.5 -1252305.5 -197331.4 -1252300.3  # rusty gable beside a steeper 
 split -197323.3 -1252358.9 -197314.8 -1252353.0  # lower end of a gabled house, darker in intensity
 split -197395.9 -1252625.5 -197389.4 -1252625.1  # lower end of a gabled house, pitched half as steep
 split -192032.1 -1246787.7 -192039.9 -1246785.0  # lower grey end of a gabled house
+split -197058.5 -1252737.2 -197069.9 -1252745.7  # gabled end of a long row of flat sheds
+split -191525.6 -1246854.4 -191530.0 -1246862.5  # lower shed at the end of a gabled house under trees
+split -195932.7 -1249018.2 -195932.2 -1249023.2  # two red houses in a row
+split -195074.4 -1245207.7 -195070.4 -1245211.7  # low white shed against a house
+split -195264.5 -1240828.5 -195257.5 -1240831.5  # low strip along a tall hipped house
